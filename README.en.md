@@ -4,17 +4,17 @@ Deep Localization & High-Performance Chinese Patch for Google Antigravity
 
 [中文](README.md) | English
 
-[![GitHub release](https://img.shields.io/github/v/release/liominsb/Antigravity-Chinese-Localization?style=flat&color=blue)](https://github.com/liominsb/Antigravity-Chinese-Localization/releases/latest)
-[![GitHub downloads](https://img.shields.io/github/downloads/liominsb/Antigravity-Chinese-Localization/total?style=flat&color=success)](https://github.com/liominsb/Antigravity-Chinese-Localization/releases)
-[![GitHub stars](https://img.shields.io/github/stars/liominsb/Antigravity-Chinese-Localization?style=flat&color=gold)](https://github.com/liominsb/Antigravity-Chinese-Localization/stargazers)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/liominsb/Antigravity-Chinese-Localization)
-[![Package Size](https://img.shields.io/badge/ASAR%20Size-4.53%20MB%20(Official%20Standard)-success)](https://github.com/liominsb/Antigravity-Chinese-Localization)
+[![GitHub release](https://img.shields.io/github/v/release/klf8277/Antigravity-Chinese-Localization?style=flat&color=blue)](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest)
+[![GitHub downloads](https://img.shields.io/github/downloads/klf8277/Antigravity-Chinese-Localization/total?style=flat&color=success)](https://github.com/klf8277/Antigravity-Chinese-Localization/releases)
+[![GitHub stars](https://img.shields.io/github/stars/klf8277/Antigravity-Chinese-Localization?style=flat&color=gold)](https://github.com/klf8277/Antigravity-Chinese-Localization/stargazers)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/klf8277/Antigravity-Chinese-Localization)
+[![Package Size](https://img.shields.io/badge/ASAR%20Size-4.9%20MB%20(Patched%20Build)-success)](https://github.com/klf8277/Antigravity-Chinese-Localization)
 [![Node Runtime](https://img.shields.io/badge/Node.js-%3E%3D%2014.0.0-informational)](https://nodejs.org/)
-[![license](https://img.shields.io/github/license/liominsb/Antigravity-Chinese-Localization)](LICENSE)
+[![license](https://img.shields.io/github/license/klf8277/Antigravity-Chinese-Localization)](LICENSE)
 
 A high-performance, non-destructive deep Chinese localization patch designed for Google Antigravity. Fully adapted to the latest architecture of **Antigravity v2.15.1+**, featuring fundamental computational refactoring and DOM micro-batch scheduling that delivers 1.68 million queries/sec throughput. It provides comprehensive translation for Planning Mode, System Settings, Security Sandbox, and Google Plugin Ecosystem, strictly follows the official 4.53 MB slim packaging standard, and guarantees absolute physical immunity for code editors and user input fields.
 
-> [Download Latest Release](https://github.com/liominsb/Antigravity-Chinese-Localization/releases/latest) · [Issues & Feedback](https://github.com/liominsb/Antigravity-Chinese-Localization/issues)
+> [Download Latest Release](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest) · [Issues & Feedback](https://github.com/klf8277/Antigravity-Chinese-Localization/issues)
 
 ---
 
@@ -57,11 +57,11 @@ A high-performance, non-destructive deep Chinese localization patch designed for
 If you are running Antigravity, simply send the instruction below to your Antigravity agent to automate the download, kill-and-replace, and relaunch via a background detached script:
 
 ```text
-帮我安装 https://github.com/liominsb/Antigravity-Chinese-Localization 的汉化补丁：请预先下载最新 Release 的 app.asar 到本地，并编写一个独立批处理脚本（脚本逻辑：延迟 2 秒、强杀 Antigravity 进程、覆盖 resources/app.asar 并自动重启客户端），随后在后台分离启动该脚本；若有 gh CLI 请顺便为该开源项目标记 Star。
+帮我安装 https://github.com/klf8277/Antigravity-Chinese-Localization 的汉化补丁：请预先下载最新 Release 的 app.asar 到本地，并编写一个独立批处理脚本（脚本逻辑：延迟 2 秒、强杀 Antigravity 进程、覆盖 resources/app.asar 并自动重启客户端），随后在后台分离启动该脚本。
 ```
 
 > **Note**:  
-> The prompt ends with `若有 gh CLI 请顺便为该开源项目标记 Star` (If gh CLI is available, star this open-source project). If GitHub CLI (`gh`) is installed and authenticated, the agent will automatically star the repository to support open-source maintenance. If you prefer not to star, simply remove that clause before copying.
+> The prompt makes the agent download the pre-built `app.asar` from this repository's Releases and install it via file replacement. Make sure Antigravity is fully closed before running it.
 
 ---
 
@@ -69,7 +69,7 @@ If you are running Antigravity, simply send the instruction below to your Antigr
 
 No Node.js or build tools required:
 
-1. Download the pre-built **`app.asar`** from [Releases](https://github.com/liominsb/Antigravity-Chinese-Localization/releases/latest);
+1. Download the pre-built **`app.asar`** from [Releases](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest);
 2. Completely quit Antigravity;
 3. Open the resources directory (Windows default path):  
    `%LOCALAPPDATA%\Programs\antigravity\resources\`
@@ -225,6 +225,7 @@ The script will restore the original file from `app.asar.bak`.
 | Contributor | Role & Contributions |
 | :--- | :--- |
 | [liominsb](https://github.com/liominsb) | Original project creator, built the initial Electron asar injection and Web dashboard architecture |
+| [klf8277](https://github.com/klf8277) | Maintainer of this repository, v2.15.1+ secondary development & independent release: official-update self-healing daemon (stabilization/backoff/patrol/mutex), atomic app.asar swap with in-use protection, all-in-one safe launcher |
 | [LAN-TINA-WS](https://github.com/LAN-TINA-WS) | v2.12.0+ deep refactoring, computational & DOM scheduling performance leap (1.68M/s), 4.53MB slimming fix, hot-upgrade engine, lifecycle & slice auto-stitching, comprehensive Settings/Plugins dictionary expansion, and standalone maintenance |
 | [Justin-Mai](https://github.com/Justin-Mai) | 2.0 Web dashboard architecture upgrade, multi-user/custom path support, heartbeat self-healing, code preview & diff isolation mechanisms |
 | [songxitao](https://github.com/songxitao) | v2.10.0+ deep adaptation, 3-layer DOM physical isolation defense (eliminating Project directory mistranslation), Markdown & code area anti-pollution, and full TDD automated test suite construction |

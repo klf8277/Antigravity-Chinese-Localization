@@ -17,7 +17,7 @@ if ($existing) {
 
 $ResourcesDir = "$env:LOCALAPPDATA\Programs\antigravity\resources"
 $AsarPath = Join-Path $ResourcesDir "app.asar"
-$LocalizationDir = "D:\AI\Antigravity-Chinese-Localization"
+$LocalizationDir = $PSScriptRoot
 $LocalizeScript = Join-Path $LocalizationDir "localize.js"
 $LogFile = Join-Path $LocalizationDir "auto-localize.log"
 

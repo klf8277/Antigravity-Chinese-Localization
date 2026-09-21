@@ -1,3 +1,4 @@
 Set ws = CreateObject("WScript.Shell")
-scriptPath = "D:\AI\Antigravity-Chinese-Localization\watch-and-auto-localize.ps1"
+Set fso = CreateObject("Scripting.FileSystemObject")
+scriptPath = fso.BuildPath(fso.GetParentFolderName(WScript.ScriptFullName), "watch-and-auto-localize.ps1")
 ws.Run "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File """ & scriptPath & """", 0, False

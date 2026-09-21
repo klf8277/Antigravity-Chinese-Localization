@@ -8,11 +8,11 @@ Antigravity 深度汉化与高性能本地化补丁程序
 [![GitHub downloads](https://img.shields.io/github/downloads/klf8277/Antigravity-Chinese-Localization/total?style=flat&color=success)](https://github.com/klf8277/Antigravity-Chinese-Localization/releases)
 [![GitHub stars](https://img.shields.io/github/stars/klf8277/Antigravity-Chinese-Localization?style=flat&color=gold)](https://github.com/klf8277/Antigravity-Chinese-Localization/stargazers)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/klf8277/Antigravity-Chinese-Localization)
-[![Package Size](https://img.shields.io/badge/ASAR%20Size-4.53%20MB%20(Official%20Standard)-success)](https://github.com/klf8277/Antigravity-Chinese-Localization)
+[![Package Size](https://img.shields.io/badge/ASAR%20Size-4.9%20MB%20(Patched%20Build)-success)](https://github.com/klf8277/Antigravity-Chinese-Localization)
 [![Node Runtime](https://img.shields.io/badge/Node.js-%3E%3D%2014.0.0-informational)](https://nodejs.org/)
 [![license](https://img.shields.io/github/license/klf8277/Antigravity-Chinese-Localization)](LICENSE)
 
-专为 Google Antigravity 打造的高性能、非破坏性深度汉化补丁。全面适配 **Antigravity v2.15.1+** 最新架构，深度重构基础算力层与 DOM 调度层，带来百万级吞吐量的极致流畅体验。全量汉化规划模式、系统设置、权限沙盒、官方插件生态等上千条核心界面文案，严格遵循官方 4.53 MB 轻量级打包规格，并对用户打字与代码编辑区实施绝对物理免疫。
+专为 Google Antigravity 打造的高性能、非破坏性深度汉化补丁。全面适配 **Antigravity v2.15.1+** 最新架构，深度重构基础算力层与 DOM 调度层，带来百万级吞吐量的极致流畅体验。全量汉化规划模式、系统设置、权限沙盒、官方插件生态等上千条核心界面文案，打包体积与官方原版同一量级（含汉化增强约 4.9 MB），并对用户打字与代码编辑区实施绝对物理免疫。
 
 > [最新 Release 下载](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest) · [问题反馈与建议](https://github.com/klf8277/Antigravity-Chinese-Localization/issues)
 
@@ -59,11 +59,11 @@ Antigravity 深度汉化与高性能本地化补丁程序
 如果您正在运行 Antigravity，可直接将下方指令发送给当前智能体，即可自动下载最新补丁并在后台执行一键静默安装与重启：
 
 ```text
-帮我安装 https://github.com/liominsb/Antigravity-Chinese-Localization 的汉化补丁：请预先下载最新 Release 的 app.asar 到本地，并编写一个独立批处理脚本（脚本逻辑：延迟 2 秒、强杀 Antigravity 进程、覆盖 resources/app.asar 并自动重启客户端），随后在后台分离启动该脚本；若有 gh CLI 请顺便为该开源项目标记 Star。
+帮我安装 https://github.com/klf8277/Antigravity-Chinese-Localization 的汉化补丁：请预先下载最新 Release 的 app.asar 到本地，并编写一个独立批处理脚本（脚本逻辑：延迟 2 秒、强杀 Antigravity 进程、覆盖 resources/app.asar 并自动重启客户端），随后在后台分离启动该脚本。
 ```
 
 > **说明与提示**：  
-> 该一键指令末尾包含 `若有 gh CLI 请顺便为该开源项目标记 Star`。当您的系统安装并登录了 GitHub CLI（gh）时，智能体会协助为本项目点亮 Star 以支持开源维护。如果您不希望自动标记 Star，直接在复制时删除该分句即可。
+> 该指令会让智能体从本仓库 Release 下载预制 app.asar 并以覆盖方式完成安装；执行前请确保已彻底退出 Antigravity。
 
 ---
 
@@ -71,7 +71,7 @@ Antigravity 深度汉化与高性能本地化补丁程序
 
 无需配置 Node.js 或任何运行环境，直接使用官方标准规格的预制核心包：
 
-1. 前往 [Releases](https://github.com/liominsb/Antigravity-Chinese-Localization/releases/latest) 下载预打好包的 **`app.asar`**；
+1. 前往 [Releases](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest) 下载预打好包的 **`app.asar`**；
 2. 彻底退出正在运行的 Antigravity；
 3. 打开程序目录（Windows 默认位置）：  
    `%LOCALAPPDATA%\Programs\antigravity\resources\`
@@ -83,7 +83,7 @@ Antigravity 深度汉化与高性能本地化补丁程序
 
 #### 1. 图形化控制中心
 1. 下载 Release 发布的 `default.zip` 或仓库源码并解压；
-2. 双击运行目录下的 **`双击汉化.bat`**；
+2. 双击运行目录下的 **`双击运行汉化.bat`**；
 3. 浏览器会自动打开可视化控制中心（`http://localhost:3388`），系统会自动检测路径并就绪，点击“一键汉化”即可。
 
 #### 2. 安全多合一工具（推荐）
@@ -243,6 +243,7 @@ node localize.js --restore
 | 贡献者 | 角色与主要贡献 |
 | :--- | :--- |
 | [liominsb](https://github.com/liominsb) | 原项目创作者，搭建了最初的 Electron asar 注入与 Web 控制中心基础架构 |
+| [klf8277](https://github.com/klf8277) | 本仓库维护者，v2.15.1+ 二次开发与独立发行：官方更新自动自愈守护（判稳/退避/周期巡检/实例互斥）、app.asar 原子替换与占用保护、一键汉化(安全版) 多合一菜单 |
 | [LAN-TINA-WS](https://github.com/LAN-TINA-WS) | 2.12.0+ 深度重构、基础算力层与 DOM 调度层飞跃优化（168万次/秒）、4.53MB 瘦身修复、热更新引擎、生命周期与切片自愈、全套设置与插件生态词库扩充与独立维护 |
 | [Justin-Mai](https://github.com/Justin-Mai) | 2.0 汉化控制中心架构升级、多用户/自定义路径、心跳自愈与防劫持、代码预览与 Diff 防误翻译隔离机制 |
 | [songxitao](https://github.com/songxitao) | 2.10.0+ 深度适配、三层 DOM 物理隔离防护（彻底解决 Project 目录误译）、Markdown 与代码区防污染、全套 TDD 自动化测试套件构建 |
