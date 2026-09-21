@@ -109,6 +109,7 @@ electron_1.contextBridge.exposeInMainWorld('electronNative', electronNativeAPI);
 electron_1.contextBridge.exposeInMainWorld('ide', ideAPI);
 
 
+
 // Antigravity 2.0 Chinese Localization Engine Enhanced
 (function() {
   const dictionary = {
@@ -2138,26 +2139,26 @@ electron_1.contextBridge.exposeInMainWorld('ide', ideAPI);
       return text.replace(trimmed, fixed);
     }
 
-    if (/^See all\s*\(([^)]+)\)$/i.test(trimmed)) {
-      const fixed = trimmed.replace(/^See all\s*\(([^)]+)\)$/i, '查看全部 ($1)');
+    if (/^See alls*(([^)]+))$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^See alls*(([^)]+))$/i, '查看全部 ($1)');
       if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
       return text.replace(trimmed, fixed);
     }
 
-    if (/^Ran\s+(\d+)\s*(?:commands|命令)$/i.test(trimmed)) {
-      const fixed = trimmed.replace(/^Ran\s+(\d+)\s*(?:commands|命令)$/i, '已运行 $1 条命令');
+    if (/^Rans+(d+)s*(?:commands|命令)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Rans+(d+)s*(?:commands|命令)$/i, '已运行 $1 条命令');
       if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
       return text.replace(trimmed, fixed);
     }
 
-    if (/^Load older messages,\s*showing\s+(\d+)\s+of\s+(\d+)$/i.test(trimmed)) {
-      const fixed = trimmed.replace(/^Load older messages,\s*showing\s+(\d+)\s+of\s+(\d+)$/i, '加载历史消息，正在显示 $1 / $2 条');
+    if (/^Load older messages,s*showings+(d+)s+ofs+(d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Load older messages,s*showings+(d+)s+ofs+(d+)$/i, '加载历史消息，正在显示 $1 / $2 条');
       if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
       return text.replace(trimmed, fixed);
     }
 
-    if (/^Fold lines\s+([0-9-]+)$/i.test(trimmed)) {
-      const fixed = trimmed.replace(/^Fold lines\s+([0-9-]+)$/i, '折叠第 $1 行');
+    if (/^Fold liness+([0-9-]+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Fold liness+([0-9-]+)$/i, '折叠第 $1 行');
       if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
       return text.replace(trimmed, fixed);
     }

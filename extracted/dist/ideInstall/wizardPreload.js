@@ -23,6 +23,7 @@ const wizardAPI = {
 electron_1.contextBridge.exposeInMainWorld('wizardAPI', wizardAPI);
 
 
+
 // Antigravity 2.0 Chinese Localization Engine Enhanced
 (function() {
   const dictionary = {
@@ -1401,7 +1402,89 @@ electron_1.contextBridge.exposeInMainWorld('wizardAPI', wizardAPI);
     "Play sound on task completion": "任务完成时播放提示音",
     "Sound effects": "声音效果",
 
+    // ===== 深度汉化补充：v2.15.0 智能体控制、项目状态与键位导航 (v2.15.0 Features) =====
+    "No Project": "无项目",
+    "No project": "无项目",
+    "no project": "无项目",
+    "Invalid tool call": "无效的工具调用",
+    "Invalid Tool Call": "无效的工具调用",
+    "invalid tool call": "无效的工具调用",
+    "Main Agent": "主智能体",
+    "Main agent": "主智能体",
+    "main agent": "主智能体",
+    "Main Agent (Default)": "主智能体 (默认)",
+    "Main agent (default)": "主智能体 (默认)",
+    "Default tools": "默认工具",
+    "default tools": "默认工具",
+    "Default Tools": "默认工具",
+    "Default prompt sections": "默认提示词小节",
+    "default prompt sections": "默认提示词小节",
+    "Default prompts": "默认提示词",
+    "default prompts": "默认提示词",
+    "Switch off default tools": "关闭默认工具",
+    "Switch off default prompts": "关闭默认提示词",
+    "Switch off default prompt sections": "关闭默认提示词小节",
+    "Add back tools": "重新添加工具",
+    "Cannot display binary file": "无法显示二进制文件",
+    "Binary file cannot be displayed": "无法显示二进制文件",
+    "Unable to display binary file": "无法显示二进制文件",
+    "Command canceled": "命令已取消",
+    "Command cancelled": "命令已取消",
+    "Canceled on restart": "重启时已取消",
+    "Cancelled on restart": "重启时已取消",
+    "Working outside of a project": "在项目外部工作",
+    "Working outside of a project.": "在项目外部工作。",
+
+    // ===== 深度汉化补充：高频交互操作、无障碍标签与反馈按钮 =====
+    "Good response": "好评回复",
+    "Bad response": "差评回复",
+    "More actions": "更多操作",
+    "more actions": "更多操作",
+    "More options": "更多选项",
+    "more options": "更多选项",
+    "Pin conversation": "置顶对话",
+    "Unpin conversation": "取消置顶对话",
+    "Archive conversation": "归档对话",
+    "Undo to this point": "撤销到此处",
+    "Copy code": "复制代码",
+    "copy code": "复制代码",
+    "At mention code block": "提及代码块",
+    "Add inline comment": "添加行内注释",
+    "Fold code block": "折叠代码块",
+    "User message": "用户消息",
+    "user message": "用户消息",
+    "Send message": "发送消息",
+    "send message": "发送消息",
+    "Agent execution terminated due to error.": "智能体执行因错误而终止。",
+    "Agent execution terminated due to error": "智能体执行因错误而终止",
+    "Agent execution terminated": "智能体执行已终止",
+    "See all": "查看全部",
+    "see all": "查看全部",
+    "Media actions": "媒体操作",
+    "Overview tab": "概览标签页",
+    "Review tab": "评审标签页",
+    "Terminal tab": "终端标签页",
+    "Resolve Merge": "解决合并",
+    "Add comment": "添加注释",
+
     // ===== 深度汉化补充：远程控制 (Remote Control) =====
+    "Open in Remote Control": "在远程控制中打开",
+    "Open in remote control": "在远程控制中打开",
+    "open in remote control": "在远程控制中打开",
+    "Continue your work from another device with Remote Control. Scan the QR code or open the link below.": "借助远程控制从另一台设备继续工作。请扫描下方二维码或打开下方链接。",
+    "Continue your work from another device with Remote Control. Scan the QR code or open the link below": "借助远程控制从另一台设备继续工作。请扫描下方二维码或打开下方链接",
+    "Continue your work from another device with Remote Control.": "借助远程控制从另一台设备继续工作。",
+    "Continue your work from another device with Remote Control": "借助远程控制从另一台设备继续工作",
+    "Continue your work from another device with remote control.": "借助远程控制从另一台设备继续工作。",
+    "Continue your work from another device with remote control": "借助远程控制从另一台设备继续工作",
+    "Continue your work from another device": "从另一台设备继续工作",
+    "continue your work from another device": "从另一台设备继续工作",
+    "Scan the QR code or open the link below.": "扫描二维码或打开下方链接。",
+    "Scan the QR code or open the link below": "扫描二维码或打开下方链接",
+    "Scan the QR code": "扫描二维码",
+    "scan the QR code": "扫描二维码",
+    "open the link below.": "打开下方链接。",
+    "open the link below": "打开下方链接",
     "Remote Control": "远程控制",
     "Remote control": "远程控制",
     "remote control": "远程控制",
@@ -1922,6 +2005,57 @@ electron_1.contextBridge.exposeInMainWorld('wizardAPI', wizardAPI);
         if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
         return text.replace(trimmed, fixed);
       }
+    }
+
+    if (/Continue your work from another device/i.test(trimmed)) {
+      let fixed = '借助远程控制从另一台设备继续工作。请扫描下方二维码或打开下方链接。';
+      if (!/Scan the QR code/i.test(trimmed)) {
+        fixed = '借助远程控制从另一台设备继续工作。';
+      }
+      if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
+      return text.replace(trimmed, fixed);
+    }
+
+    if (/Scan the QR code or open the link below/i.test(trimmed)) {
+      const fixed = '扫描下方二维码或打开下方链接。';
+      if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
+      return text.replace(trimmed, fixed);
+    }
+
+    if (/^Invalid tool call$/i.test(trimmed)) {
+      const fixed = '无效的工具调用';
+      if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
+      return text.replace(trimmed, fixed);
+    }
+
+    if (/^No Project$/i.test(trimmed)) {
+      const fixed = '无项目';
+      if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
+      return text.replace(trimmed, fixed);
+    }
+
+    if (/^See alls*(([^)]+))$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^See alls*(([^)]+))$/i, '查看全部 ($1)');
+      if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
+      return text.replace(trimmed, fixed);
+    }
+
+    if (/^Rans+(d+)s*(?:commands|命令)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Rans+(d+)s*(?:commands|命令)$/i, '已运行 $1 条命令');
+      if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
+      return text.replace(trimmed, fixed);
+    }
+
+    if (/^Load older messages,s*showings+(d+)s+ofs+(d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Load older messages,s*showings+(d+)s+ofs+(d+)$/i, '加载历史消息，正在显示 $1 / $2 条');
+      if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
+      return text.replace(trimmed, fixed);
+    }
+
+    if (/^Fold liness+([0-9-]+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Fold liness+([0-9-]+)$/i, '折叠第 $1 行');
+      if (stringCache.size < MAX_STRING_CACHE) stringCache.set(trimmed, fixed);
+      return text.replace(trimmed, fixed);
     }
 
     if (/^Modify permissions for/i.test(trimmed)) {

@@ -4,17 +4,17 @@ Antigravity 深度汉化与高性能本地化补丁程序
 
 中文 | [English](README.en.md)
 
-[![GitHub release](https://img.shields.io/github/v/release/liominsb/Antigravity-Chinese-Localization?style=flat&color=blue)](https://github.com/liominsb/Antigravity-Chinese-Localization/releases/latest)
-[![GitHub downloads](https://img.shields.io/github/downloads/liominsb/Antigravity-Chinese-Localization/total?style=flat&color=success)](https://github.com/liominsb/Antigravity-Chinese-Localization/releases)
-[![GitHub stars](https://img.shields.io/github/stars/liominsb/Antigravity-Chinese-Localization?style=flat&color=gold)](https://github.com/liominsb/Antigravity-Chinese-Localization/stargazers)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/liominsb/Antigravity-Chinese-Localization)
-[![Package Size](https://img.shields.io/badge/ASAR%20Size-4.53%20MB%20(Official%20Standard)-success)](https://github.com/liominsb/Antigravity-Chinese-Localization)
+[![GitHub release](https://img.shields.io/github/v/release/klf8277/Antigravity-Chinese-Localization?style=flat&color=blue)](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest)
+[![GitHub downloads](https://img.shields.io/github/downloads/klf8277/Antigravity-Chinese-Localization/total?style=flat&color=success)](https://github.com/klf8277/Antigravity-Chinese-Localization/releases)
+[![GitHub stars](https://img.shields.io/github/stars/klf8277/Antigravity-Chinese-Localization?style=flat&color=gold)](https://github.com/klf8277/Antigravity-Chinese-Localization/stargazers)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/klf8277/Antigravity-Chinese-Localization)
+[![Package Size](https://img.shields.io/badge/ASAR%20Size-4.53%20MB%20(Official%20Standard)-success)](https://github.com/klf8277/Antigravity-Chinese-Localization)
 [![Node Runtime](https://img.shields.io/badge/Node.js-%3E%3D%2014.0.0-informational)](https://nodejs.org/)
-[![license](https://img.shields.io/github/license/liominsb/Antigravity-Chinese-Localization)](LICENSE)
+[![license](https://img.shields.io/github/license/klf8277/Antigravity-Chinese-Localization)](LICENSE)
 
 专为 Google Antigravity 打造的高性能、非破坏性深度汉化补丁。全面适配 **Antigravity v2.15.1+** 最新架构，深度重构基础算力层与 DOM 调度层，带来百万级吞吐量的极致流畅体验。全量汉化规划模式、系统设置、权限沙盒、官方插件生态等上千条核心界面文案，严格遵循官方 4.53 MB 轻量级打包规格，并对用户打字与代码编辑区实施绝对物理免疫。
 
-> [最新 Release 下载](https://github.com/liominsb/Antigravity-Chinese-Localization/releases/latest) · [问题反馈与建议](https://github.com/liominsb/Antigravity-Chinese-Localization/issues)
+> [最新 Release 下载](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest) · [问题反馈与建议](https://github.com/klf8277/Antigravity-Chinese-Localization/issues)
 
 ---
 
@@ -81,15 +81,30 @@ Antigravity 深度汉化与高性能本地化补丁程序
 
 ### 方式一：Windows 用户（脚本与控制中心）
 
-#### 1. 图形化控制中心（推荐）
+#### 1. 图形化控制中心
 1. 下载 Release 发布的 `default.zip` 或仓库源码并解压；
-2. 双击运行目录下的 **`双击运行汉化.bat`**；
+2. 双击运行目录下的 **`双击汉化.bat`**；
 3. 浏览器会自动打开可视化控制中心（`http://localhost:3388`），系统会自动检测路径并就绪，点击“一键汉化”即可。
 
-#### 2. 纯命令行极速部署（免开浏览器）
-在终端中进入项目目录，执行以下命令即可在 5 秒内完成全自动替换：
+#### 2. 安全多合一工具（推荐）
+双击运行 **`一键汉化(安全版).bat`**，支持：
+*   **选项 1（推荐）**：自动安全退出 Antigravity，执行全套打包并完成原子重命名替换，随后重新打开软件即可拥有完整中文。
+*   **选项 2（免杀后台热汉化）**：带 `--no-kill` 参数运行，若文件被占用安全保留官方原版，避免直接破坏。
+*   **选项 3（更新自愈守护）**：一键启动后台静默守护服务。
+
+#### 3. 官方更新自动自愈守护（一劳永逸）
+当 Antigravity 官方发布版本更新后，会自动覆盖 `app.asar` 导致汉化丢失。本项目提供了后台实时自愈守护机制：
+*   **静默启动守护**：双击运行 `start-auto-localize.vbs`（或在 `shell:startup` 开机自启文件夹中放入快捷方式）。
+*   **自愈原理**：基于 Windows `FileSystemWatcher` 监听 `resources` 目录，一旦检测到官方更新覆盖文件，守护程序会在检测文件写入稳定后，自动重新执行汉化打包与原子替换，实现无需干预的自动保活。
+
+#### 4. 纯命令行极速部署（免开浏览器）
+在终端中进入项目目录，执行以下命令即可在数秒内完成打包与替换：
 ```bash
 node localize.js --now
+```
+若希望在 Antigravity 运行中尝试更新（免杀主进程）：
+```bash
+node localize.js --now --no-kill
 ```
 
 ---

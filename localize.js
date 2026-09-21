@@ -3211,7 +3211,12 @@ async function runLocalizationWorkflow(appDir) {
   }
 
   // 1. Kill running instances
-  killApp();
+  const noKill = process.argv.includes('--no-kill');
+  if (!noKill) {
+    killApp();
+  } else {
+    log('已指定 --no-kill 参数，跳过终止 Antigravity 进程。');
+  }
 
   // 2. Backup app.asar
   if (!fs.existsSync(backupPath)) {
@@ -3261,14 +3266,32 @@ async function runLocalizationWorkflow(appDir) {
     throw new Error('打包新 asar 失败: ' + e.message);
   }
 
-  // 7. Deploy newly packed app.asar
+  // 7. Deploy newly packed app.asar (Atomic rename via staged temporary file)
   log('正在部署新的汉化 app.asar...');
+  const stagedAsar = path.join(resourcesDir, 'app.asar.staged');
+  if (fs.existsSync(stagedAsar)) {
+    try { fs.unlinkSync(stagedAsar); } catch (e) {}
+  }
+
+  // 先复制到同目录临时预备文件
   try {
-    fs.copyFileSync(tempAsar, asarPath);
+    fs.copyFileSync(tempAsar, stagedAsar);
     fs.unlinkSync(tempAsar);
-    log('汉化 app.asar 部署成功！');
   } catch (e) {
-    throw new Error('复制汉化包到系统程序目录失败 (请检查是否有读写权限): ' + e.message);
+    throw new Error('写入临时文件失败: ' + e.message);
+  }
+
+  // 执行原子 rename 替换
+  try {
+    fs.renameSync(stagedAsar, asarPath);
+    log('汉化 app.asar 原子替换部署成功！');
+  } catch (err) {
+    // 失败则保留官方文件并提示“重启后重试”，禁止非原子覆盖
+    if (fs.existsSync(stagedAsar)) {
+      try { fs.unlinkSync(stagedAsar); } catch (e) {}
+    }
+    log('[原子替换失败] 目标 app.asar 被占用。已保留官方原版文件，请重启后重试。');
+    throw new Error('原子替换失败 (目标 app.asar 被占用)。已保留官方原版文件，请重启后重试。');
   }
 
   log('🎉 Antigravity 2.0 一键汉化成功完成！现在您可以安全启动程序了。');
