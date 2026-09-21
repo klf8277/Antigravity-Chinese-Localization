@@ -46,7 +46,7 @@ A high-performance, non-destructive deep Chinese localization patch designed for
 | **High Throughput & Frame Rate** | Over 1.68 Million QPS | Leverages precompiled $O(1)$ Hash Map, ASCII short-circuit, unified regex stream scanning, DOM ancestor pruning, and microtask frame aggregation to ensure buttery-smooth 60fps/120fps operation. |
 | **Slim Packaging Standards** | Aligned with 4.53 ~ 4.66 MB | Uses `--unpack-dir` to exclude redundant external Node modules, completely eliminating legacy 14MB+ package bloat and matching official distribution size. |
 | **Lifecycle Self-Healing & Hot Updates** | `injectOrUpdate` Truncation Logic | Overcomes legacy limitations where existing markers prevented updates; supports hot file replacement and instantaneous `Ctrl + R` reload across versions. |
-| **TDD Automated Test Gate** | 305+ Test Cases 100% PASS | Robust test matrix (Ticket-06 through Ticket-11) coupled with strict `node --check` AST syntax verification across 37 core JavaScript files, preventing runtime crashes. |
+| **TDD Automated Test Gate** | Workflow & Safety Logic 100% GREEN | Test matrix (Ticket-01 through Ticket-11) coupled with `node --check` AST syntax verification; workflow / backup / restore safety logic fully passing, while v2.15.x dictionary cases (TDD RED) keep being filled in with each adaptation. |
 
 ---
 
