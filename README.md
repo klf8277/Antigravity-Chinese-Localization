@@ -46,7 +46,7 @@ Antigravity 深度汉化与高性能本地化补丁程序
 | **极致吞吐与高帧率调度** | 吞吐量突破 168 万次/秒 | 采用预编译 $O(1)$ 哈希索引、纯中文 ASCII 极速短路、联合流式正则、DOM 树祖先剪枝与微任务帧聚合调度，全面保障 60fps/120fps 满帧无感运行。 |
 | **轻量打包与标准规格** | 严格对齐 4.53 ~ 4.66 MB | 修正打包过滤规则，使用 `--unpack-dir` 排除外部冗余模块，彻底消除旧版本 14MB+ 的体积膨胀问题，与官方原版规格完全一致。 |
 | **生命周期自愈与热升级** | `injectOrUpdate` 截断更新 | 解决旧版因检测到历史标记而跳过更新的缺陷，无论是全新安装、日常热覆盖还是跨版本升级，均支持热注入与 `Ctrl + R` 瞬时重载自愈。 |
-| **全套 TDD 自动化测试门禁** | 215+ 项测试用例 100% PASS | 建立 Ticket-06 ~ Ticket-09 自动化测试矩阵与 37 个核心 JS 文件的 `node --check` AST 语法门禁，杜绝任何语法失真与启动崩溃。 |
+| **全套 TDD 自动化测试门禁** | 305+ 项测试用例 100% PASS | 建立 Ticket-06 ~ Ticket-11 自动化测试矩阵与 37 个核心 JS 文件的 `node --check` AST 语法门禁，杜绝任何语法失真与启动崩溃。 |
 
 ---
 
@@ -242,7 +242,7 @@ node localize.js --restore
 
 | 贡献者 | 角色与主要贡献 |
 | :--- | :--- |
-| [liominsb](https://github.com/liominsb) | 原项目创作者，搭建了最初的 Electron asar 注入与 Web 控制中心基础架构 |
+| [liominsb](https://github.com/liominsb) | 原项目创作者（[上游仓库](https://github.com/liominsb/Antigravity-Chinese-Localization)），搭建了最初的 Electron asar 注入与 Web 控制中心基础架构 |
 | [klf8277](https://github.com/klf8277) | 本仓库维护者，v2.15.1+ 二次开发与独立发行：官方更新自动自愈守护（判稳/退避/周期巡检/实例互斥）、app.asar 原子替换与占用保护、一键汉化(安全版) 多合一菜单 |
 | [LAN-TINA-WS](https://github.com/LAN-TINA-WS) | 2.12.0+ 深度重构、基础算力层与 DOM 调度层飞跃优化（168万次/秒）、4.53MB 瘦身修复、热更新引擎、生命周期与切片自愈、全套设置与插件生态词库扩充与独立维护 |
 | [Justin-Mai](https://github.com/Justin-Mai) | 2.0 汉化控制中心架构升级、多用户/自定义路径、心跳自愈与防劫持、代码预览与 Diff 防误翻译隔离机制 |

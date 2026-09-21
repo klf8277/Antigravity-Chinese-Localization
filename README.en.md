@@ -12,7 +12,7 @@ Deep Localization & High-Performance Chinese Patch for Google Antigravity
 [![Node Runtime](https://img.shields.io/badge/Node.js-%3E%3D%2014.0.0-informational)](https://nodejs.org/)
 [![license](https://img.shields.io/github/license/klf8277/Antigravity-Chinese-Localization)](LICENSE)
 
-A high-performance, non-destructive deep Chinese localization patch designed for Google Antigravity. Fully adapted to the latest architecture of **Antigravity v2.15.1+**, featuring fundamental computational refactoring and DOM micro-batch scheduling that delivers 1.68 million queries/sec throughput. It provides comprehensive translation for Planning Mode, System Settings, Security Sandbox, and Google Plugin Ecosystem, strictly follows the official 4.53 MB slim packaging standard, and guarantees absolute physical immunity for code editors and user input fields.
+A high-performance, non-destructive deep Chinese localization patch designed for Google Antigravity. Fully adapted to the latest architecture of **Antigravity v2.15.1+**, featuring fundamental computational refactoring and DOM micro-batch scheduling that delivers 1.68 million queries/sec throughput. It provides comprehensive translation for Planning Mode, System Settings, Security Sandbox, and Google Plugin Ecosystem, strictly follows the official 4.53 MB slim packaging standard (approximately 4.9 MB with localization enhancements), and guarantees absolute physical immunity for code editors and user input fields.
 
 > [Download Latest Release](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest) · [Issues & Feedback](https://github.com/klf8277/Antigravity-Chinese-Localization/issues)
 
@@ -46,7 +46,7 @@ A high-performance, non-destructive deep Chinese localization patch designed for
 | **High Throughput & Frame Rate** | Over 1.68 Million QPS | Leverages precompiled $O(1)$ Hash Map, ASCII short-circuit, unified regex stream scanning, DOM ancestor pruning, and microtask frame aggregation to ensure buttery-smooth 60fps/120fps operation. |
 | **Slim Packaging Standards** | Aligned with 4.53 ~ 4.66 MB | Uses `--unpack-dir` to exclude redundant external Node modules, completely eliminating legacy 14MB+ package bloat and matching official distribution size. |
 | **Lifecycle Self-Healing & Hot Updates** | `injectOrUpdate` Truncation Logic | Overcomes legacy limitations where existing markers prevented updates; supports hot file replacement and instantaneous `Ctrl + R` reload across versions. |
-| **TDD Automated Test Gate** | 215+ Test Cases 100% PASS | Robust test matrix (Ticket-06 through Ticket-09) coupled with strict `node --check` AST syntax verification across 37 core JavaScript files, preventing runtime crashes. |
+| **TDD Automated Test Gate** | 305+ Test Cases 100% PASS | Robust test matrix (Ticket-06 through Ticket-11) coupled with strict `node --check` AST syntax verification across 37 core JavaScript files, preventing runtime crashes. |
 
 ---
 
@@ -61,7 +61,9 @@ If you are running Antigravity, simply send the instruction below to your Antigr
 ```
 
 > **Note**:  
-> The prompt makes the agent download the pre-built `app.asar` from this repository's Releases and install it via file replacement. Make sure Antigravity is fully closed before running it.
+> The prompt above is in Chinese and should be sent as-is to the Antigravity agent — it instructs the agent to download the pre-built `app.asar` from this repository's Releases, write a batch script that kills Antigravity, replaces `resources/app.asar`, and relaunches the client. Make sure Antigravity is fully closed before running it.
+>
+> **English equivalent**: *"Install the Chinese localization patch from https://github.com/klf8277/Antigravity-Chinese-Localization: download the latest Release's app.asar locally, then write a standalone batch script (logic: wait 2 seconds, force-kill Antigravity, overwrite resources/app.asar, and auto-restart the client), then launch it detached in the background."*
 
 ---
 
@@ -79,15 +81,30 @@ No Node.js or build tools required:
 
 ### Method 1: Windows Users (Scripts & Dashboard)
 
-#### 1. Web Dashboard (Recommended)
+#### 1. Web Dashboard
 1. Download `default.zip` from Releases or clone repository, then extract;
 2. Double-click **`双击运行汉化.bat`**;
 3. The dashboard opens automatically (`http://localhost:3388`), auto-detects program status, and click "一键汉化" (One-Click Localize).
 
-#### 2. Headless CLI Deployment
+#### 2. All-in-One Safe Launcher (Recommended)
+Double-click **`一键汉化(安全版).bat`**, which provides:
+*   **Option 1 (Recommended)**: Safely exits Antigravity, performs full packaging and atomic rename replacement, then simply relaunch the app for full Chinese UI.
+*   **Option 2 (No-Kill Background)**: Runs with `--no-kill` flag — if the file is locked, the official version is safely preserved to avoid corruption.
+*   **Option 3 (Self-Healing Daemon)**: One-click starts the background silent daemon service.
+
+#### 3. Official Update Self-Healing Daemon (Set and Forget)
+When Antigravity releases an official update, it overwrites `app.asar` causing localization loss. This project includes a real-time self-healing daemon:
+*   **Silent startup**: Double-click `start-auto-localize.vbs` (or place a shortcut in `shell:startup` for auto-launch at boot).
+*   **How it works**: Uses Windows `FileSystemWatcher` to monitor the `resources` directory. When an official update overwrites the file, the daemon waits for write stabilization, then automatically re-runs localization packaging and atomic replacement — fully hands-free.
+
+#### 4. Headless CLI Deployment
 In your terminal, navigate to the folder and run:
 ```bash
 node localize.js --now
+```
+To attempt an update while Antigravity is running (no-kill mode):
+```bash
+node localize.js --now --no-kill
 ```
 
 ---
@@ -212,7 +229,7 @@ node localize.js --now
 The script will back up the new official file and inject the latest patch, or simply replace `app.asar` with the latest Release asset.
 
 ### Q3: How to cleanly uninstall and restore official English?
-Click "还原英文原版" in the dashboard, or run:
+Click "还原英文原版" (Restore Official English) in the dashboard, or run:
 ```bash
 node localize.js --restore
 ```
@@ -224,7 +241,7 @@ The script will restore the original file from `app.asar.bak`.
 
 | Contributor | Role & Contributions |
 | :--- | :--- |
-| [liominsb](https://github.com/liominsb) | Original project creator, built the initial Electron asar injection and Web dashboard architecture |
+| [liominsb](https://github.com/liominsb) | Original project creator ([upstream repo](https://github.com/liominsb/Antigravity-Chinese-Localization)), built the initial Electron asar injection and Web dashboard architecture |
 | [klf8277](https://github.com/klf8277) | Maintainer of this repository, v2.15.1+ secondary development & independent release: official-update self-healing daemon (stabilization/backoff/patrol/mutex), atomic app.asar swap with in-use protection, all-in-one safe launcher |
 | [LAN-TINA-WS](https://github.com/LAN-TINA-WS) | v2.12.0+ deep refactoring, computational & DOM scheduling performance leap (1.68M/s), 4.53MB slimming fix, hot-upgrade engine, lifecycle & slice auto-stitching, comprehensive Settings/Plugins dictionary expansion, and standalone maintenance |
 | [Justin-Mai](https://github.com/Justin-Mai) | 2.0 Web dashboard architecture upgrade, multi-user/custom path support, heartbeat self-healing, code preview & diff isolation mechanisms |

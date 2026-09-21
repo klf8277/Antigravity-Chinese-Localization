@@ -5,3 +5,5 @@ app.asar*
 Thumbs.db
 *.log
 release-assets/
+.idea/
+.vscode/
