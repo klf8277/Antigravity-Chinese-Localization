@@ -199,20 +199,42 @@ Register-ObjectEvent -InputObject $watcher -EventName "Renamed" -Action $action 
 
 Write-Log "实时变动监听已就绪，正在后台持续守护..."
 
+# 2026-09-24 修复：原主循环 Start-Sleep 1800 会占住引擎，FileSystemWatcher 的注册事件动作
+# 要等引擎空闲才执行，导致"实时监听"最长延迟 30 分钟（2.17.0 升级 21:34 覆盖 asar，实时层全程哑火）。
+# 现改为短轮询：每 10 秒比对 app.asar 的 mtime 触发汉化检查（不依赖事件机制），30 分钟巡检另行计时。
+$pollIntervalSeconds = 10
+$patrolIntervalSeconds = 1800
+$lastPatrolTime = [DateTime]::Now
+$lastKnownMTime = if (Test-Path $AsarPath) { (Get-Item -LiteralPath $AsarPath).LastWriteTime } else { [DateTime]::MinValue }
+
 try {
     while ($true) {
-        Start-Sleep -Seconds 1800
+        Start-Sleep -Seconds $pollIntervalSeconds
         try {
-            # 周期巡检：覆盖"重试耗尽后才退出 Antigravity"的场景（无文件事件触发，靠巡检补刀）
+            # mtime 轮询：兜住 FileSystemWatcher 哑火的场景
             if (Test-Path $AsarPath) {
-                $sizeOk = (Get-Item -LiteralPath $AsarPath).Length -gt 1048576
-                if ($sizeOk -and -not (Test-IsChineseLocalized -Path $AsarPath)) {
-                    Write-Log "[周期巡检] 检测到 app.asar 为未汉化版本，自动重新汉化。"
+                $asarItem = Get-Item -LiteralPath $AsarPath
+                if ($asarItem.Length -gt 1048576 -and $asarItem.LastWriteTime -ne $lastKnownMTime) {
+                    Write-Log "[mtime 轮询] 检测到 app.asar 变动 (LastWriteTime=$($asarItem.LastWriteTime))。"
                     Invoke-LocalizationWithBackoff | Out-Null
+                    if (Test-Path $AsarPath) {
+                        $lastKnownMTime = (Get-Item -LiteralPath $AsarPath).LastWriteTime
+                    }
+                }
+            }
+            # 周期巡检：覆盖"重试耗尽后才退出 Antigravity"的场景（无文件变动触发，靠巡检补刀）
+            if (((Get-Date) - $lastPatrolTime).TotalSeconds -ge $patrolIntervalSeconds) {
+                $lastPatrolTime = Get-Date
+                if (Test-Path $AsarPath) {
+                    $sizeOk = (Get-Item -LiteralPath $AsarPath).Length -gt 1048576
+                    if ($sizeOk -and -not (Test-IsChineseLocalized -Path $AsarPath)) {
+                        Write-Log "[周期巡检] 检测到 app.asar 为未汉化版本，自动重新汉化。"
+                        Invoke-LocalizationWithBackoff | Out-Null
+                    }
                 }
             }
         } catch {
-            Write-Log "[周期巡检] 巡检异常（不影响继续守护）: $_"
+            Write-Log "[轮询/巡检] 异常（不影响继续守护）: $_"
         }
     }
 } finally {
