@@ -8,10 +8,14 @@ param (
 
 $ErrorActionPreference = "Continue"
 
-# 实例互斥：已有守护在跑则本实例退出，避免双开重复触发
-$existing = Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | Where-Object { $_.CommandLine -like "*watch-and-auto-localize.ps1*" -and $_.ProcessId -ne $PID }
-if ($existing) {
-    Write-Log "检测到守护进程已在运行 (PID $($existing.ProcessId -join ', '))，本实例退出以避免重复。"
+# 实例互斥：命名互斥体替代进程查询法——查询法在多实例同时启动时有竞态
+# （2026-10-02 实测同一秒起 3 个实例全部通过互斥检查），互斥体随进程退出自动释放
+$LogFile = Join-Path $PSScriptRoot "auto-localize.log"
+$script:AppMutex = New-Object System.Threading.Mutex($false, "AntigravityAutoLocalizeWatchdog")
+if (-not $script:AppMutex.WaitOne(0)) {
+    $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] 已有守护实例持有互斥体，本实例退出以避免重复。"
+    Write-Host $line
+    try { Add-Content -Path $LogFile -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue } catch {}
     exit 0
 }
 
@@ -97,7 +101,18 @@ function Wait-ForFileStabilization {
     return $false
 }
 
+function Test-AppRunning {
+    # 只看 Antigravity 主程序（language_server 残留不代表用户还在用）
+    try {
+        $output = tasklist 2>$null
+        return @($output | Where-Object { $_ -match "antigravity\.exe" }).Count -gt 0
+    } catch {
+        return $false
+    }
+}
+
 function Invoke-LocalizationWithBackoff {
+    param ([switch]$ForceKill)
     $maxRetries = 3
     $backoffDelays = @(5, 15, 30)
 
@@ -127,7 +142,7 @@ function Invoke-LocalizationWithBackoff {
 
         # 3. 执行汉化命令
         $nodeArgs = @("$LocalizeScript", "--now")
-        if ($NoKill) {
+        if ($NoKill -and -not $ForceKill) {
             $nodeArgs += "--no-kill"
         }
 
@@ -150,6 +165,10 @@ function Invoke-LocalizationWithBackoff {
 
     Write-Log "❌ [退避终止] 已达到最大重试次数 ($maxRetries 次)。"
     Write-Log "保护说明: 已保留官方原版文件，禁止非原子覆盖。可能 Antigravity 正在运行中独占文件，请退出软件后手动重试或等待下次重启触发。"
+    if (Test-AppRunning) {
+        $script:PendingSwap = $true
+        Write-Log "已登记退出补刀：待 Antigravity 退出后将自动补汉化并重启应用。"
+    }
     return $false
 }
 
@@ -205,12 +224,27 @@ Write-Log "实时变动监听已就绪，正在后台持续守护..."
 $pollIntervalSeconds = 10
 $patrolIntervalSeconds = 1800
 $lastPatrolTime = [DateTime]::Now
+$script:PendingSwap = $false
 $lastKnownMTime = if (Test-Path $AsarPath) { (Get-Item -LiteralPath $AsarPath).LastWriteTime } else { [DateTime]::MinValue }
 
 try {
     while ($true) {
         Start-Sleep -Seconds $pollIntervalSeconds
         try {
+            # 退出补刀（2026-10-02 新增）：更新落在用户使用中时，热替换因文件占用被安全拒绝，
+            # 记下 PendingSwap；此处等用户退出 Antigravity 后立即补汉化，并重启应用还原使用现场
+            if ($script:PendingSwap -and -not (Test-AppRunning)) {
+                Write-Log "[退出补刀] 检测到 Antigravity 已退出，立即执行补汉化。"
+                $swapOk = Invoke-LocalizationWithBackoff -ForceKill
+                $script:PendingSwap = $false
+                if ($swapOk) {
+                    $appExe = Join-Path (Split-Path $ResourcesDir) "Antigravity.exe"
+                    if (Test-Path $appExe) {
+                        Write-Log "[退出补刀] 汉化完成，重新启动 Antigravity..."
+                        Start-Process -FilePath $appExe | Out-Null
+                    }
+                }
+            }
             # mtime 轮询：兜住 FileSystemWatcher 哑火的场景
             if (Test-Path $AsarPath) {
                 $asarItem = Get-Item -LiteralPath $AsarPath
