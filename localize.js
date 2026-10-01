@@ -3560,6 +3560,9 @@ if (process.argv.includes('--now')) {
   runLocalizationWorkflow(defaultAppDir)
     .then(() => {
       console.log('🎉 汉化打包部署成功！');
+      console.log('');
+      console.log('💡 如果这个工具帮你节省了时间，欢迎到 GitHub 点个 ⭐ 支持一下：');
+      console.log('   https://github.com/klf8277/Antigravity-Chinese-Localization');
       process.exit(0);
     })
     .catch((err) => {
