@@ -12,7 +12,7 @@ Antigravity 深度汉化与高性能本地化补丁程序
 [![Node Runtime](https://img.shields.io/badge/Node.js-%3E%3D%2014.0.0-informational)](https://nodejs.org/)
 [![license](https://img.shields.io/github/license/klf8277/Antigravity-Chinese-Localization)](LICENSE)
 
-专为 Google Antigravity 打造的高性能、非破坏性深度汉化补丁。全面适配 **Antigravity v2.15.1+** 最新架构，深度重构基础算力层与 DOM 调度层，带来百万级吞吐量的极致流畅体验。全量汉化规划模式、系统设置、权限沙盒、官方插件生态等上千条核心界面文案，打包体积与官方原版同一量级（含汉化增强约 4.9 MB），并对用户打字与代码编辑区实施绝对物理免疫。
+专为 Google Antigravity 打造的高性能、非破坏性深度汉化补丁。全面适配 **Antigravity v2.15.1 ～ v2.19.1**（v2.15.1 / v2.17.0 / v2.19.1 三代官方构建实测部署通过），深度重构基础算力层与 DOM 调度层，带来百万级吞吐量的极致流畅体验。全量汉化规划模式、系统设置、权限沙盒、官方插件生态等上千条核心界面文案，打包体积与官方原版同一量级（含汉化增强约 4.9 MB），并对用户打字与代码编辑区实施绝对物理免疫。注：官方 v2.16+ 新增的界面文案尚未纳入词条映射（持续跟进中），其余界面文案正常汉化。
 
 > [最新 Release 下载](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest) · [问题反馈与建议](https://github.com/klf8277/Antigravity-Chinese-Localization/issues)
 
@@ -93,9 +93,11 @@ Antigravity 深度汉化与高性能本地化补丁程序
 *   **选项 3（更新自愈守护）**：一键启动后台静默守护服务。
 
 #### 3. 官方更新自动自愈守护（一劳永逸）
-当 Antigravity 官方发布版本更新后，会自动覆盖 `app.asar` 导致汉化丢失。本项目提供了后台实时自愈守护机制：
+当 Antigravity 官方发布版本更新后，会自动覆盖 `app.asar` 导致汉化丢失。本项目提供后台自愈守护机制：
 *   **静默启动守护**：双击运行 `start-auto-localize.vbs`（或在 `shell:startup` 开机自启文件夹中放入快捷方式）。
-*   **自愈原理**：基于 Windows `FileSystemWatcher` 监听 `resources` 目录，一旦检测到官方更新覆盖文件，守护程序会在检测文件写入稳定后，自动重新执行汉化打包与原子替换，实现无需干预的自动保活。
+*   **变动探针**：每 10 秒比对 `app.asar` 修改时间，检测到官方更新覆盖后等待写入稳定，随即自动重新执行汉化打包与原子替换，实测 10 秒内响应。
+*   **退出补刀**：若官方更新落在你正在使用 Antigravity 时，热替换会因文件占用被安全拒绝；守护自动登记待办，在你退出应用的瞬间补汉化并重启应用还原使用现场（实测退出后 2 秒触发、约 15 秒完成）。
+*   **周期巡检与实例互斥**：每 30 分钟兜底巡检一次；命名互斥体保证全局仅运行一个守护实例。
 
 #### 4. 纯命令行极速部署（免开浏览器）
 在终端中进入项目目录，执行以下命令即可在数秒内完成打包与替换：
@@ -205,6 +207,7 @@ node localize.js --pack-only
 
 各版本的详细更新记录、新特性适配细节与底层技术架构演进，请参阅独立的 [CHANGELOG.md](CHANGELOG.md)（英文版请参阅 [CHANGELOG.en.md](CHANGELOG.en.md)）：
 
+- **[v2.19.1](CHANGELOG.md#v2191-2026-10-02)** (2026-10-02)：注入锚点实测兼容 Antigravity v2.17.0 / v2.19.1 官方构建；自愈守护重构——10 秒 mtime 轮询主探针、退出补刀（应用退出自动补汉化并重启）、命名互斥体防多开竞态、30 分钟周期巡检。
 - **[v2.15.1](CHANGELOG.md#v2151-2026-09-21)** (2026-09-21)：全面适配 Antigravity v2.15.1 最新官方构建；左侧栏置顶会话（Pinned Conversations）及常用分组标题全量汉化；工作流与安全恢复逻辑测试全绿，并配合 JS 文件 AST 静态语法校验门禁。
 - **[v2.15.0](CHANGELOG.md#v2150-2026-09-19)** (2026-09-19)：全面适配 Antigravity v2.15.0 核心架构；自定义智能体默认提示词与工具控制汉化；未关联项目状态与无效工具调用轻量提示优化；通过全套 239 项 TDD 自动化测试与 37 个 JS 文件 AST 静态语法校验门禁。
 - **[v2.14.0](CHANGELOG.md#v2140-2026-09-16)** (2026-09-16)：全面适配 Antigravity v2.14.0 核心架构；版本定义与依赖平滑升级；通过全套 TDD 自动化测试与 37 个 JS 文件 AST 静态语法校验门禁。
@@ -243,7 +246,7 @@ node localize.js --restore
 | 贡献者 | 角色与主要贡献 |
 | :--- | :--- |
 | [liominsb](https://github.com/liominsb) | 原项目创作者（[上游仓库](https://github.com/liominsb/Antigravity-Chinese-Localization)），搭建了最初的 Electron asar 注入与 Web 控制中心基础架构 |
-| [klf8277](https://github.com/klf8277) | 本仓库维护者，v2.15.1+ 二次开发与独立发行：官方更新自动自愈守护（判稳/退避/周期巡检/实例互斥）、app.asar 原子替换与占用保护、一键汉化(安全版) 多合一菜单 |
+| [klf8277](https://github.com/klf8277) | 本仓库维护者，v2.15.1+ 二次开发与独立发行：官方更新自动自愈守护（10s mtime 轮询/退出补刀/周期巡检/命名互斥体）、app.asar 原子替换与占用保护、一键汉化(安全版) 多合一菜单 |
 | [LAN-TINA-WS](https://github.com/LAN-TINA-WS) | 2.12.0+ 深度重构、基础算力层与 DOM 调度层飞跃优化（168万次/秒）、4.53MB 瘦身修复、热更新引擎、生命周期与切片自愈、全套设置与插件生态词库扩充与独立维护 |
 | [Justin-Mai](https://github.com/Justin-Mai) | 2.0 汉化控制中心架构升级、多用户/自定义路径、心跳自愈与防劫持、代码预览与 Diff 防误翻译隔离机制 |
 | [songxitao](https://github.com/songxitao) | 2.10.0+ 深度适配、三层 DOM 物理隔离防护（彻底解决 Project 目录误译）、Markdown 与代码区防污染、全套 TDD 自动化测试套件构建 |

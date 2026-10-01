@@ -4,6 +4,20 @@ This document tracks all version releases, core architecture adaptations, and fe
 
 ---
 
+## v2.19.1 (2026-10-02)
+
+### 1. Injection Anchors Verified Compatible with Antigravity v2.17.0 / v2.19.1
+- **Verified on Three Official Builds**: Real deployments succeeded on official v2.15.1 / v2.17.0 / v2.19.1 — all injection points (`preload.js`, wizard preload, native menus, tray, splash overlay) remain compatible with zero manual cross-version adaptation.
+- **Dictionary Coverage Note**: The dictionary is still based on the v2.15.1 entry set; UI strings newly introduced in official v2.16+ are not yet mapped and will be filled in subsequent releases.
+
+### 2. Self-Healing Daemon Rework (watch-and-auto-localize.ps1)
+- **mtime Polling Probe**: Polls the `app.asar` modification time every 10 seconds as the real detection probe (the previously relied-upon PowerShell registered events never fire inside a persistent script loop — the "realtime listener" was effectively dead); verified response within 10 seconds of a change.
+- **Exit-Swap**: When an official update lands during active use, the hot swap is safely refused due to file locks (all three --no-kill retries fail); the daemon registers a pending task and, upon detecting app exit, automatically re-applies localization and relaunches the app. End-to-end verified: triggered 2 seconds after exit, completed in ~15 seconds.
+- **Named Mutex**: Instance mutual exclusion switched from process querying to a named mutex, eliminating the race where multiple instances launched in the same second all passed the check (verified: 3 simultaneous launches all slipped through the old check).
+- **Periodic Patrol**: A 30-minute fallback check covering edge cases such as exhausted retries with no further file events.
+
+---
+
 ## v2.15.1 (2026-09-21)
 
 ### 1. Comprehensive Adaptation to Antigravity v2.15.1 Architecture

@@ -12,7 +12,7 @@ Deep Localization & High-Performance Chinese Patch for Google Antigravity
 [![Node Runtime](https://img.shields.io/badge/Node.js-%3E%3D%2014.0.0-informational)](https://nodejs.org/)
 [![license](https://img.shields.io/github/license/klf8277/Antigravity-Chinese-Localization)](LICENSE)
 
-A high-performance, non-destructive deep Chinese localization patch designed for Google Antigravity. Fully adapted to the latest architecture of **Antigravity v2.15.1+**, featuring fundamental computational refactoring and DOM micro-batch scheduling that delivers 1.68 million queries/sec throughput. It provides comprehensive translation for Planning Mode, System Settings, Security Sandbox, and Google Plugin Ecosystem, strictly follows the official 4.53 MB slim packaging standard (approximately 4.9 MB with localization enhancements), and guarantees absolute physical immunity for code editors and user input fields.
+A high-performance, non-destructive deep Chinese localization patch designed for Google Antigravity. Fully adapted to **Antigravity v2.15.1 – v2.19.1** (verified by real deployments on the official v2.15.1 / v2.17.0 / v2.19.1 builds), featuring fundamental computational refactoring and DOM micro-batch scheduling that delivers 1.68 million queries/sec throughput. It provides comprehensive translation for Planning Mode, System Settings, Security Sandbox, and Google Plugin Ecosystem, strictly follows the official 4.53 MB slim packaging standard (approximately 4.9 MB with localization enhancements), and guarantees absolute physical immunity for code editors and user input fields. Note: UI strings newly introduced in official v2.16+ are not yet covered by the dictionary (ongoing effort); all existing strings localize normally.
 
 > [Download Latest Release](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest) · [Issues & Feedback](https://github.com/klf8277/Antigravity-Chinese-Localization/issues)
 
@@ -93,9 +93,11 @@ Double-click **`一键汉化(安全版).bat`**, which provides:
 *   **Option 3 (Self-Healing Daemon)**: One-click starts the background silent daemon service.
 
 #### 3. Official Update Self-Healing Daemon (Set and Forget)
-When Antigravity releases an official update, it overwrites `app.asar` causing localization loss. This project includes a real-time self-healing daemon:
+When Antigravity releases an official update, it overwrites `app.asar` causing localization loss. This project includes a background self-healing daemon:
 *   **Silent startup**: Double-click `start-auto-localize.vbs` (or place a shortcut in `shell:startup` for auto-launch at boot).
-*   **How it works**: Uses Windows `FileSystemWatcher` to monitor the `resources` directory. When an official update overwrites the file, the daemon waits for write stabilization, then automatically re-runs localization packaging and atomic replacement — fully hands-free.
+*   **Change probe**: Compares the `app.asar` modification time every 10 seconds. When an official update overwrites the file, the daemon waits for write stabilization, then automatically re-runs localization packaging and atomic replacement (verified response within 10 seconds).
+*   **Exit-swap**: If an official update lands while you are using Antigravity, the hot swap is safely refused due to file locks; the daemon registers a pending task and, the moment you quit the app, re-applies localization and relaunches it (verified: triggered 2 seconds after exit, completed in ~15 seconds).
+*   **Periodic patrol & single instance**: A 30-minute fallback patrol; a named mutex guarantees only one daemon instance runs.
 
 #### 4. Headless CLI Deployment
 In your terminal, navigate to the folder and run:
@@ -204,6 +206,7 @@ Detailed architectural designs, benchmarks (1.68M qps), and engineering practice
 
 For detailed release notes, new feature adaptations, and architectural evolution history across all versions, please refer to the dedicated [CHANGELOG.en.md](CHANGELOG.en.md) (or [Chinese CHANGELOG.md](CHANGELOG.md)):
 
+- **[v2.19.1](CHANGELOG.en.md#v2191-2026-10-02)** (2026-10-02): Injection anchors verified compatible with Antigravity v2.17.0 / v2.19.1 official builds; self-healing daemon rework — 10-second mtime polling probe, exit-swap (auto re-localization + app relaunch on quit), named-mutex single instance, 30-minute periodic patrol.
 - **[v2.15.1](CHANGELOG.en.md#v2151-2026-09-21)** (2026-09-21): Comprehensive adaptation to Antigravity v2.15.1 architecture; left sidebar Pinned Conversations & group headers localization; 100% TDD test suite (305 tests) and 37 dist JS AST static syntax check gates passed.
 - **[v2.15.0](CHANGELOG.en.md#v2150-2026-09-19)** (2026-09-19): Comprehensive adaptation to Antigravity v2.15.0 architecture; custom agent default prompt & tools controls localization; project picker unbound state & invalid tool call prompt optimizations; 100% TDD test suite (239 tests) and 37 dist JS AST static syntax check gates passed.
 - **[v2.14.0](CHANGELOG.en.md#v2140-2026-09-16)** (2026-09-16): Comprehensive adaptation to Antigravity v2.14.0 architecture; version metadata and dependencies seamless upgrade; 100% TDD test suite and 37 dist JS AST static syntax check gates passed.
@@ -242,7 +245,7 @@ The script will restore the original file from `app.asar.bak`.
 | Contributor | Role & Contributions |
 | :--- | :--- |
 | [liominsb](https://github.com/liominsb) | Original project creator ([upstream repo](https://github.com/liominsb/Antigravity-Chinese-Localization)), built the initial Electron asar injection and Web dashboard architecture |
-| [klf8277](https://github.com/klf8277) | Maintainer of this repository, v2.15.1+ secondary development & independent release: official-update self-healing daemon (stabilization/backoff/patrol/mutex), atomic app.asar swap with in-use protection, all-in-one safe launcher |
+| [klf8277](https://github.com/klf8277) | Maintainer of this repository, v2.15.1+ secondary development & independent release: official-update self-healing daemon (10s mtime polling / exit-swap / periodic patrol / named mutex), atomic app.asar swap with in-use protection, all-in-one safe launcher |
 | [LAN-TINA-WS](https://github.com/LAN-TINA-WS) | v2.12.0+ deep refactoring, computational & DOM scheduling performance leap (1.68M/s), 4.53MB slimming fix, hot-upgrade engine, lifecycle & slice auto-stitching, comprehensive Settings/Plugins dictionary expansion, and standalone maintenance |
 | [Justin-Mai](https://github.com/Justin-Mai) | 2.0 Web dashboard architecture upgrade, multi-user/custom path support, heartbeat self-healing, code preview & diff isolation mechanisms |
 | [songxitao](https://github.com/songxitao) | v2.10.0+ deep adaptation, 3-layer DOM physical isolation defense (eliminating Project directory mistranslation), Markdown & code area anti-pollution, and full TDD automated test suite construction |
