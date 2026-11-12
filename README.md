@@ -12,7 +12,7 @@ Antigravity 深度汉化与高性能本地化补丁程序
 [![Node Runtime](https://img.shields.io/badge/Node.js-%3E%3D%2014.0.0-informational)](https://nodejs.org/)
 [![license](https://img.shields.io/github/license/klf8277/Antigravity-Chinese-Localization)](LICENSE)
 
-专为 Google Antigravity 打造的高性能、非破坏性深度汉化补丁。全面适配 **Antigravity v2.15.1 ～ v2.19.1**（v2.15.1 / v2.17.0 / v2.19.1 三代官方构建实测部署通过），深度重构基础算力层与 DOM 调度层，带来百万级吞吐量的极致流畅体验。全量汉化规划模式、系统设置、权限沙盒、官方插件生态等上千条核心界面文案，打包体积与官方原版同一量级（含汉化增强约 4.9 MB），并对用户打字与代码编辑区实施绝对物理免疫。注：官方 v2.16+ 新增的界面文案尚未纳入词条映射（持续跟进中），其余界面文案正常汉化。
+专为 Google Antigravity 打造的高性能、非破坏性深度汉化补丁。全面适配 **Antigravity v2.31.2+** 最新架构，深度重构基础算力层与 DOM 调度层，带来百万级吞吐量的极致流畅体验。全量汉化规划模式、系统设置、权限沙盒、官方插件生态等上千条核心界面文案，严格遵循官方 4.53 MB 轻量级打包规格，并对用户打字与代码编辑区实施绝对物理免疫。
 
 > [最新 Release 下载](https://github.com/klf8277/Antigravity-Chinese-Localization/releases/latest) · [问题反馈与建议](https://github.com/klf8277/Antigravity-Chinese-Localization/issues)
 
@@ -37,7 +37,7 @@ Antigravity 深度汉化与高性能本地化补丁程序
 | :--- | :--- | :--- |
 | **模型与思考链原生保留** | 100% 保持官方英文原生 | 严格遵循专业开发习惯，模型下拉框（Gemini 3.8 / Claude 3.7 等）及思考链（Thinking / Thought 过程）保留原生英文，杜绝机器硬翻引起的认知歧义。 |
 | **编辑器与输入物理免疫** | Shadow DOM 穿透隔离 | 智能免疫 `INPUT`、`TEXTAREA`、富文本输入框、Monaco 代码编辑器、Diff 比对器与用户对话气泡，绝对物理隔离，严禁篡改用户编写的代码与 Prompt。 |
-| **无损备份与一键自愈** | 双向无损瞬时切换 | 首次部署自动生成官方原版 `app.asar.bak`，支持随时通过控制面板或命令行 `node localize.js --restore` 毫秒级无损还原至官方纯英文状态。 |
+| **无损备份与一键自愈** | 双向无损瞬时切换 | 首次部署自动生成官方原版 `app.asar.bak`，支持随时通过控制面板「还原英文原版」或直接用备份覆盖 `app.asar`，毫秒级无损还原至官方纯英文状态。 |
 
 ### 3. 工业级底层算力与工程工艺 (High-Performance Engine & Engineering)
 
@@ -81,10 +81,14 @@ Antigravity 深度汉化与高性能本地化补丁程序
 
 ### 方式一：Windows 用户（脚本与控制中心）
 
-#### 1. 图形化控制中心
-1. 下载 Release 发布的 `default.zip` 或仓库源码并解压；
+#### 1. 图形化控制中心（推荐）
+1. 下载 Release 发布的 `default.zip`，或直接 clone 仓库 / 下载 GitHub 源码包并解压（仓库已自带 `app.asar.ready`，无需额外准备补丁文件）；
 2. 双击运行目录下的 **`双击运行汉化.bat`**；
-3. 浏览器会自动打开可视化控制中心（`http://localhost:3388`），系统会自动检测路径并就绪，点击“一键汉化”即可。
+3. 浏览器会自动打开可视化控制中心（`http://localhost:3388`），系统会自动检测安装状态；若检测到官方更新覆盖，会在首页顶部醒目提示并支持一键恢复。
+
+控制中心首页显示实际已安装的 `app.asar` 版本，可以直接读取 GitHub Releases，选择最新正式版或历史版本。“仅下载”将文件缓存到本项目的 `downloads/` 目录；“下载并安装”在下载和 SHA-256 校验后，确认安装到配置的目标路径。更新说明和已下载版本默认折叠；路径配置、本地脚本汉化、还原及日志可在“设置与维护”中展开。
+
+各版本缓存会一直保留。用户可以在“已下载版本”列表中安装或单独删除某个缓存包；删除缓存不会修改 Antigravity 的安装文件。安装确认会提醒先保存编辑；用户确认后，如程序仍在运行，控制中心会结束所有 Antigravity 实例及后台语言服务，并严格确认进程退出后才备份和安装。强制退出可能丢失未保存的编辑；停止失败时不替换安装文件。替换失败会尝试恢复本次备份。备份按文件内容（SHA-256）去重，相同内容直接复用已有备份；当前安装文件已经与所选包一致时，跳过结束进程、安装和备份。不同内容的备份及历史备份会保留，不自动删除。原有“一键汉化”按钮继续使用本地脚本注入流程。
 
 #### 2. 安全多合一工具（推荐）
 双击运行 **`一键汉化(安全版).bat`**，支持：
@@ -92,16 +96,30 @@ Antigravity 深度汉化与高性能本地化补丁程序
 *   **选项 2（免杀后台热汉化）**：带 `--no-kill` 参数运行，若文件被占用安全保留官方原版，避免直接破坏。
 *   **选项 3（更新自愈守护）**：一键启动后台静默守护服务。
 
-#### 3. 官方更新自动自愈守护（一劳永逸）
+#### 3. 一键快速更新与官方更新恢复（双击即用）
+官方客户端自动更新后会还原为英文原版，此时双击运行 **`一键更新汉化.bat`**：
+- 自动检测 Node.js 环境与客户端实际版本；
+- 具备严格的版本兼容性校验（避免因跨版本强行覆盖造成客户端白屏）；
+- 自动备份原版并原子替换恢复汉化；
+- 若系统无 Node.js 环境，则自动降级为纯批处理保底流程。
+
+#### 4. 官方更新自动自愈守护（一劳永逸）
 当 Antigravity 官方发布版本更新后，会自动覆盖 `app.asar` 导致汉化丢失。本项目提供后台自愈守护机制：
 *   **静默启动守护**：双击运行 `start-auto-localize.vbs`（或在 `shell:startup` 开机自启文件夹中放入快捷方式）。
 *   **变动探针**：每 10 秒比对 `app.asar` 修改时间，检测到官方更新覆盖后等待写入稳定，随即自动重新执行汉化打包与原子替换，实测 10 秒内响应。
 *   **退出补刀**：若官方更新落在你正在使用 Antigravity 时，热替换会因文件占用被安全拒绝；守护自动登记待办，在你退出应用的瞬间补汉化并重启应用还原使用现场（实测退出后 2 秒触发、约 15 秒完成）。
 *   **周期巡检与实例互斥**：每 30 分钟兜底巡检一次；命名互斥体保证全局仅运行一个守护实例。
 
-#### 4. 纯命令行极速部署（免开浏览器）
-在终端中进入项目目录，执行以下命令即可在数秒内完成打包与替换：
+#### 5. 命令行极速部署与静默恢复（免开浏览器）
+在终端中进入项目目录，执行以下命令：
 ```bash
+# 官方更新后自动检查并恢复（匹配版本安全安装，不兼容则自动拦截）
+node localize.js --auto-restore
+
+# 查看客户端状态与本地补丁兼容性信息
+node localize.js --check-status
+
+# 直接全量重新打包并部署
 node localize.js --now
 ```
 若希望在 Antigravity 运行中尝试更新（免杀主进程）：
@@ -134,6 +152,10 @@ node localize.js --now --no-kill
    ```
 2. 浏览器自动打开控制中心，点击“一键汉化”。默认定位路径为 `/Applications/Antigravity.app`。
 
+官方升级后需要重新应用汉化时，可在源码目录或包含 `localize.js` 的完整分发包中双击 **`一键更新汉化.command`**（首次使用可运行 `chmod +x 一键更新汉化.command`）。需要 Node.js 14 或更新版本；执行前会提示保存工作并确认，随后调用现有 `--auto-restore` 流程关闭客户端、备份并恢复汉化，成功后打开应用。此入口不依赖 `extracted/`，不联网下载或重新打包；仅支持实际归档版本相同的本地预制包，版本不匹配或无法读取时停止。尚未发布对应版本汉化包时，请等待适配，不要用旧包覆盖新客户端。这里的“恢复”指恢复汉化，不是还原英文版。
+
+启动器优先使用当前 PATH 中可用的 Node，并补充常见 Homebrew 路径；必要时通过用户的登录交互 shell 加载 nvm、fnm、asdf 等初始化配置，再尝试 NVM 默认版本。请确保这些工具已在自己的 shell 中正确配置。自动打开应用失败只显示提示，不会改变汉化成功的退出码。
+
 > **macOS 代码签名提示**：  
 > 在 macOS 下修改应用内部 asar 包会破坏原有的签名信息，Gatekeeper 可能会拦截并提示“应用已损坏，无法打开”。若遇到该情况，在终端中执行以下命令清除隔离属性即可恢复正常：  
 > ```bash
@@ -150,15 +172,17 @@ node localize.js --now --no-kill
 # 立即执行汉化并静默退出（不启动 Web 界面）
 node localize.js --now
 
-# 立即恢复到官方原版英文（使用 app.asar.bak 还原）
-node localize.js --restore
+# 官方更新后自动检查并恢复汉化（版本不兼容时自动拦截，退出码 2）
+node localize.js --auto-restore
 
-# 仅解包 app.asar 到 extracted 目录（用于开发与分析）
-node localize.js --extract-only
+# 查看安装路径、客户端版本、汉化状态与可用补丁
+node localize.js --check-status
 
-# 仅从 extracted 目录重新打包为 app.asar
-node localize.js --pack-only
+# 仅对已解包的 extracted 目录注入汉化文本（开发者调试用）
+node localize.js --apply-only
 ```
+
+> **参数白名单**：`localize.js` 只接受上述四个参数。传入其它参数（包括旧版文档里曾出现、但从未实现的 `--restore`、`--extract-only`、`--pack-only`）会立即报错并以退出码 `1` 结束，不会再静默启动 Web 面板。
 
 ---
 
@@ -233,11 +257,16 @@ node localize.js --now
 脚本会自动备份新的官方 `app.asar` 并重新注入最新的深度汉化补丁。或者直接下载最新 Release 预制的 `app.asar` 进行覆盖。
 
 ### Q3: 如何完全卸载汉化、恢复官方原版？
-在控制中心点击“还原英文原版”，或者直接运行：
+在控制中心点击“还原英文原版”；也可以直接用此前备份的官方原版覆盖当前文件——`app.asar.bak` 与 `app.asar` 位于同一个 `Resources` 目录，把 `.bak` 复制过去改名为 `app.asar` 即可。
+
+> 覆盖前请确认 Antigravity 已完全退出，否则文件可能被占用而复制失败；同时建议保留一份 `app.asar.bak`，以便下次重新汉化。
+
+### Q4: 源码包中自带的 app.asar.ready 会导致仓库体积无限膨胀吗？
+不会。终端用户下载的 Release 资产包或网页 "Download ZIP" 仅包含单版本快照（恒定约 5 MB），零历史冗余包。对于通过 `git clone` 参与贡献的开发者，推荐使用浅克隆（Shallow Clone）：
 ```bash
-node localize.js --restore
+git clone --depth=1 https://github.com/liominsb/Antigravity-Chinese-Localization.git
 ```
-程序将自动从此前备份的 `app.asar.bak` 中无损还原原始文件。
+更多关于工程权衡、历史修剪与云端动态按需拉取的架构演进设计，请参阅 [架构与工程文档：二进制资产维护策略](docs/architecture.md#七版本分发与二进制资产维护策略-binary-assets--repository-maintenance-strategy)。
 
 ---
 

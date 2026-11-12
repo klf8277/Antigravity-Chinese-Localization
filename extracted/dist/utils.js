@@ -36,19 +36,35 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SleepBlocker = exports.showOrCreateWindow = exports.showQuitConfirmation = void 0;
+exports.SleepBlocker = exports.showOrCreateWindow = exports.HUB_SURFACE_COLOR_STORAGE_KEY = exports.showQuitConfirmation = void 0;
 exports.setShowQuitConfirmation = setShowQuitConfirmation;
 exports.isMacOS = isMacOS;
+exports.normalizeHexSurfaceColor = normalizeHexSurfaceColor;
+exports.buildHubCurtainDataUrl = buildHubCurtainDataUrl;
+exports.markWebviewPopupWindow = markWebviewPopupWindow;
+exports.registerWindowWebContents = registerWindowWebContents;
+exports.getHubView = getHubView;
+exports.getHubCurtainView = getHubCurtainView;
+exports.getHubCurtainColor = getHubCurtainColor;
+exports.setHubCurtainColor = setHubCurtainColor;
+exports.getHubWebContents = getHubWebContents;
+exports.resolveHubWindowFromWebContents = resolveHubWindowFromWebContents;
+exports.getHubWindows = getHubWindows;
+exports.getFocusedHubWindow = getFocusedHubWindow;
 exports.createWindow = createWindow;
 exports.getNodeWrapperPaths = getNodeWrapperPaths;
 exports.setupNodeWrapper = setupNodeWrapper;
 const electron_1 = require("electron");
 const constants_1 = require("./constants");
+const externalUrl_1 = require("./externalUrl");
 const keybindings_1 = require("./keybindings");
 const path_1 = __importDefault(require("path"));
 const fs = __importStar(require("fs"));
 const paths_1 = require("./paths");
 const loadingOverlay_1 = require("./loadingOverlay");
+const wsl_1 = require("./wsl");
+const debugConsole_1 = require("./debugConsole");
+const windowState_1 = require("./windowState");
 exports.showQuitConfirmation = false;
 function setShowQuitConfirmation(value) {
     exports.showQuitConfirmation = value;
@@ -93,26 +109,239 @@ function ensureAppIsInDock() {
         electron_1.app.dock.setIcon(electron_1.nativeImage.createFromPath(iconPath));
     }
 }
-// ---------------------------------------------------------------------------
-// Window Management
-// ---------------------------------------------------------------------------
+exports.HUB_SURFACE_COLOR_STORAGE_KEY = 'hubSurfaceBackgroundColor';
+const HEX_COLOR_6_RE = /^#[0-9a-fA-F]{6}$/;
+const hubWindows = new WeakSet();
+const hubViewByWindow = new WeakMap();
+const hubCurtainViewByWindow = new WeakMap();
+const hubCurtainColorByWindow = new WeakMap();
+const hubCurtainStateByWindow = new WeakMap();
+const windowByWebContents = new WeakMap();
+const windowByWebContentsId = new Map();
+/** Validates a 6-digit `#RRGGBB` hex color string and returns it normalized to uppercase. */
+function normalizeHexSurfaceColor(color) {
+    const s = typeof color === 'string' ? color.trim() : '';
+    return HEX_COLOR_6_RE.test(s) ? s.toUpperCase() : undefined;
+}
+/** Builds the minimal opaque HTML document URL loaded into `curtainView` so its compositor surface paints. */
+function buildHubCurtainDataUrl(color) {
+    const c = encodeURIComponent(color);
+    return `data:text/html,<!doctype html><html style="margin:0;height:100%;background:${c}"><body style="margin:0;height:100%;background:${c}"></body></html>`;
+}
+function isPopupWindow(win) {
+    return Boolean(win &&
+        typeof win === 'object' &&
+        win.__isWebviewPopupWindow);
+}
+/** Marks a child `BrowserWindow` created by `<webview>` `window.open()` so `getHubWindows()` ignores it. */
+function markWebviewPopupWindow(win) {
+    if (win && typeof win === 'object') {
+        win.__isWebviewPopupWindow = true;
+    }
+}
+/** Associates `contents` (`hubWcv` or `browserWcv`) with its owning `HubWindow`. */
+function registerWindowWebContents(win, contents) {
+    if (!win || !contents || typeof contents !== 'object') {
+        return;
+    }
+    const hubWin = win;
+    windowByWebContents.set(contents, hubWin);
+    if (typeof contents.id === 'number') {
+        windowByWebContentsId.set(contents.id, hubWin);
+        contents.once?.('destroyed', () => {
+            if (windowByWebContentsId.get(contents.id) === hubWin) {
+                windowByWebContentsId.delete(contents.id);
+            }
+        });
+    }
+}
+/** Returns the primary Hub UI `WebContentsView` (`hubWcv`) for `win`. */
+function getHubView(win) {
+    return win && typeof win === 'object' ? hubViewByWindow.get(win) : undefined;
+}
+/** Returns the opaque background `View` curtain separating hidden background `browserWcv` tabs from `hubWcv` and the active `[data-browser-hole]` tab. */
+function getHubCurtainView(win) {
+    return win && typeof win === 'object'
+        ? hubCurtainViewByWindow.get(win)
+        : undefined;
+}
+/** Returns the theme surface and curtain background color (`#RRGGBB`) for `win`. */
+function getHubCurtainColor(win) {
+    if (win && typeof win === 'object') {
+        const cached = hubCurtainColorByWindow.get(win);
+        if (cached) {
+            return cached;
+        }
+    }
+    try {
+        const storagePath = (0, paths_1.getAppStoragePath)();
+        if (fs.existsSync(storagePath)) {
+            const parsed = JSON.parse(fs.readFileSync(storagePath, 'utf-8'));
+            const stored = normalizeHexSurfaceColor(parsed?.[exports.HUB_SURFACE_COLOR_STORAGE_KEY]);
+            if (stored) {
+                return stored;
+            }
+        }
+    }
+    catch {
+        // Fall back to theme settings below.
+    }
+    return getThemeMode().toUpperCase().includes('LIGHT') ? '#FAFAFA' : '#131313';
+}
+/** Updates a Hub window's `baseWin` and opaque `curtainView` document to `color` (`#RRGGBB`); no-ops for windows without a curtain. */
+function setHubCurtainColor(win, color) {
+    const normalized = normalizeHexSurfaceColor(color);
+    const curtain = win && typeof win === 'object'
+        ? hubCurtainViewByWindow.get(win)
+        : undefined;
+    if (!normalized || !win || !curtain) {
+        return undefined;
+    }
+    hubCurtainColorByWindow.set(win, normalized);
+    const w = win;
+    if (!w.isDestroyed?.()) {
+        w.setBackgroundColor?.(normalized);
+    }
+    if (!curtain.webContents?.isDestroyed?.()) {
+        curtain.setBackgroundColor?.(normalized);
+        const st = hubCurtainStateByWindow.get(win) ?? { chain: Promise.resolve() };
+        st.chain = st.chain.then(async () => {
+            if (curtain.webContents?.isDestroyed?.() ||
+                hubCurtainColorByWindow.get(win) !== normalized) {
+                return;
+            }
+            const prev = st.cssKey;
+            const css = `html, body { background: ${normalized} !important; }`;
+            const key = await curtain.webContents
+                .insertCSS(css, { cssOrigin: 'user' })
+                .catch(() => undefined);
+            if (typeof key === 'string' && key) {
+                st.cssKey = key;
+                if (prev && prev !== key) {
+                    await curtain.webContents
+                        .removeInsertedCSS(prev)
+                        .catch(() => undefined);
+                }
+            }
+        });
+        hubCurtainStateByWindow.set(win, st);
+    }
+    return normalized;
+}
+/** Returns the trusted Hub UI `WebContents` (`hubWcv.webContents`) for `win`. */
+function getHubWebContents(win) {
+    if (!win || typeof win !== 'object') {
+        return undefined;
+    }
+    return (hubViewByWindow.get(win)?.webContents ??
+        win.webContents);
+}
+/** Resolves the owning `HubWindow` for `hubWcv`, `browserWcv`, or `<webview>` `contents`. */
+function resolveHubWindowFromWebContents(contents) {
+    if (!contents || typeof contents !== 'object') {
+        return undefined;
+    }
+    const direct = windowByWebContents.get(contents) ??
+        (typeof contents.id === 'number'
+            ? windowByWebContentsId.get(contents.id)
+            : undefined);
+    if (direct && !direct.isDestroyed?.() && !isPopupWindow(direct)) {
+        return direct;
+    }
+    if (contents.hostWebContents && contents.hostWebContents !== contents) {
+        const fromHost = resolveHubWindowFromWebContents(contents.hostWebContents);
+        if (fromHost) {
+            return fromHost;
+        }
+    }
+    for (const win of getHubWindows()) {
+        const hubContents = getHubWebContents(win);
+        if (hubContents === contents ||
+            (typeof contents.id === 'number' && hubContents?.id === contents.id)) {
+            return win;
+        }
+    }
+    if (typeof electron_1.BrowserWindow?.fromWebContents === 'function') {
+        const candidate = (contents.hostWebContents
+            ? electron_1.BrowserWindow.fromWebContents(contents.hostWebContents)
+            : null) ??
+            electron_1.BrowserWindow.fromWebContents(contents);
+        if (candidate && !candidate.isDestroyed?.() && !isPopupWindow(candidate)) {
+            return candidate;
+        }
+    }
+    return undefined;
+}
+/** Returns all open top-level Hub windows (excluding `<webview>` child popup windows). */
+function getHubWindows() {
+    const candidates = [];
+    const seen = new Set();
+    const baseWins = typeof electron_1.BaseWindow?.getAllWindows === 'function'
+        ? electron_1.BaseWindow.getAllWindows()
+        : [];
+    const browserWins = typeof electron_1.BrowserWindow?.getAllWindows === 'function'
+        ? electron_1.BrowserWindow.getAllWindows()
+        : [];
+    for (const win of [...baseWins, ...browserWins]) {
+        if (!win ||
+            typeof win !== 'object' ||
+            seen.has(win) ||
+            win.isDestroyed?.()) {
+            continue;
+        }
+        seen.add(win);
+        if (hubWindows.has(win) || !isPopupWindow(win)) {
+            candidates.push(win);
+        }
+    }
+    return candidates;
+}
+/** Returns the currently focused top-level `HubWindow`, if any. */
+function getFocusedHubWindow() {
+    const focused = (typeof electron_1.BaseWindow?.getFocusedWindow === 'function'
+        ? electron_1.BaseWindow.getFocusedWindow()
+        : null) ??
+        (typeof electron_1.BrowserWindow?.getFocusedWindow === 'function'
+            ? electron_1.BrowserWindow.getFocusedWindow()
+            : null);
+    return focused &&
+        !focused.isDestroyed?.() &&
+        (hubWindows.has(focused) || !isPopupWindow(focused))
+        ? focused
+        : undefined;
+}
 /**
- * Creates and returns a new BrowserWindow pointed at `url`.
- * Uses a hidden title bar with native traffic lights on macOS.
- * Node integration is disabled and context isolation is enabled for security.
+ * Creates and returns a new Hub window pointed at `url`.
+ * Always constructs a `BaseWindow` hosting a transparent `hubWcv`
+ * (`WebContentsView`), so native browser views can stack at `z=0`/`z=1` and
+ * the `<webview>` engine renders inside `hubWcv`. The browser engine is chosen
+ * by the renderer at runtime, so it may change without recreating the window.
  */
-function createWindow(url, storageManager) {
+function createWindow(url, storageManager, options) {
     ensureAppIsInDock();
+    const existingWindows = options?.cascade ? getHubWindows() : [];
+    const initialWindowState = (0, windowState_1.resolveInitialWindowState)({
+        cascadeFromWindow: existingWindows.length > 0
+            ? (getFocusedHubWindow() ?? existingWindows[existingWindows.length - 1])
+            : undefined,
+    });
     const theme = getThemeMode().toUpperCase();
     const isLight = theme.includes('LIGHT');
     const backgroundColor = isLight ? '#FAFAFA' : '#131313';
     const foregroundColor = isLight ? '#383A42' : '#FAFAFA';
-    const win = new electron_1.BrowserWindow({
-        width: 1400,
-        height: 900,
-        minWidth: 500,
-        minHeight: 400,
-        title: electron_1.app.getName(),
+    const wslBadge = (0, wsl_1.getActiveWslDistro)()
+        ? ` (WSL: ${(0, wsl_1.getActiveWslDistro)()})`
+        : '';
+    const windowOptions = {
+        ...(initialWindowState.x !== undefined && initialWindowState.y !== undefined
+            ? { x: initialWindowState.x, y: initialWindowState.y }
+            : {}),
+        width: initialWindowState.width,
+        height: initialWindowState.height,
+        ...(initialWindowState.isFullScreen ? { fullscreen: true } : {}),
+        minWidth: windowState_1.MIN_WINDOW_WIDTH,
+        minHeight: windowState_1.MIN_WINDOW_HEIGHT,
+        title: electron_1.app.getName() + wslBadge,
         icon: path_1.default.join(__dirname, '..', 'icon.png'),
         titleBarStyle: 'hidden',
         titleBarOverlay: isMacOS()
@@ -128,25 +357,138 @@ function createWindow(url, storageManager) {
             nodeIntegration: false,
             contextIsolation: true,
             preload: path_1.default.join(__dirname, 'preload.js'),
-            devTools: !electron_1.app.isPackaged,
+            devTools: (0, debugConsole_1.isDebugConsoleEnabled)(),
+            // Required for the in-app <webview> browser surface so the guest
+            // runs in an out-of-process Chromium WebContents that ignores
+            // X-Frame-Options and frame-ancestors CSP and supports isolated worlds.
+            webviewTag: true,
         },
+    };
+    const curtainColor = getHubCurtainColor();
+    const { webPreferences, ...baseWindowOptions } = windowOptions;
+    const baseWin = new electron_1.BaseWindow({
+        ...baseWindowOptions,
+        backgroundColor: curtainColor,
     });
-    // Prevent the menu dropdown from being very wide due to long page titles
-    win.on('page-title-updated', (event, title) => {
+    // Load a minimal static HTML document into `curtainView` (`javascript: false`):
+    // without a committed renderer frame, a WebContentsView's compositor layer
+    // remains transparent (`setBackgroundColor` only paints behind NSView hosts
+    // on macOS and awaits a committed frame on Aura/Viz), letting parked tabs bleed.
+    const curtainView = new electron_1.WebContentsView({
+        webPreferences: { sandbox: true, javascript: false },
+    });
+    curtainView.setBackgroundColor?.(curtainColor);
+    const initialCurtainLoad = Promise.resolve(curtainView.webContents?.loadURL?.(buildHubCurtainDataUrl(curtainColor))).catch(() => undefined);
+    const hubWcv = new electron_1.WebContentsView({
+        webPreferences: { ...webPreferences, transparent: true },
+    });
+    hubWcv.setBackgroundColor?.('#00000000');
+    baseWin.contentView.addChildView(curtainView);
+    baseWin.contentView.addChildView(hubWcv);
+    const syncHubViewBounds = () => {
+        if (!baseWin.isDestroyed?.() && !hubWcv.webContents?.isDestroyed?.()) {
+            const [width, height] = baseWin.getContentSize();
+            curtainView.setBounds({ x: 0, y: 0, width, height });
+            hubWcv.setBounds({ x: 0, y: 0, width, height });
+        }
+    };
+    syncHubViewBounds();
+    baseWin.on('resize', syncHubViewBounds);
+    const win = baseWin;
+    Object.defineProperty(win, 'webContents', {
+        get: () => hubWcv.webContents,
+        configurable: true,
+    });
+    win.loadURL = (targetUrl, options) => hubWcv.webContents.loadURL(targetUrl, options);
+    hubViewByWindow.set(win, hubWcv);
+    hubCurtainViewByWindow.set(win, curtainView);
+    hubCurtainColorByWindow.set(win, curtainColor);
+    hubCurtainStateByWindow.set(win, { chain: initialCurtainLoad });
+    const onCurtainProcessGone = () => {
+        if (!baseWin.isDestroyed?.() && !curtainView.webContents?.isDestroyed?.()) {
+            const currentColor = hubCurtainColorByWindow.get(win) ?? curtainColor;
+            const st = hubCurtainStateByWindow.get(win) ?? {
+                chain: Promise.resolve(),
+            };
+            st.cssKey = undefined;
+            st.chain = st.chain.then(() => Promise.resolve(curtainView.webContents?.loadURL?.(buildHubCurtainDataUrl(currentColor))).catch(() => undefined));
+            hubCurtainStateByWindow.set(win, st);
+        }
+    };
+    curtainView.webContents?.on?.('render-process-gone', onCurtainProcessGone);
+    if (initialWindowState.isFullScreen) {
+        if (!win.isFullScreen?.()) {
+            win.setFullScreen?.(true);
+        }
+        syncHubViewBounds?.();
+    }
+    else if (initialWindowState.isMaximized) {
+        win.maximize?.();
+        syncHubViewBounds?.();
+    }
+    (0, windowState_1.trackWindowState)(win, initialWindowState);
+    const hubContents = getHubWebContents(win);
+    if (!hubContents) {
+        throw new Error('Failed to initialize Hub WebContents');
+    }
+    hubWindows.add(win);
+    registerWindowWebContents(win, hubContents);
+    // `BaseWindow` does not mirror the Hub page title, so set it explicitly.
+    // Truncation keeps the menu dropdown from being very wide.
+    const handleTitleUpdate = (_event, title) => {
+        if (win.isDestroyed?.()) {
+            return;
+        }
         const maxLength = 25;
-        if (title.length > maxLength) {
-            event.preventDefault();
-            win.setTitle(title.substring(0, maxLength) + '...');
+        const truncated = title.length > maxLength ? title.substring(0, maxLength) + '...' : title;
+        win.setTitle(truncated + wslBadge);
+    };
+    hubContents.on?.('page-title-updated', handleTitleUpdate);
+    const guardExternalNavigation = (event) => {
+        // will-redirect also fires for subframes (e.g. sidecar iframes); only
+        // top-level Hub navigations should be guarded or handed to the OS.
+        if (!event.isMainFrame) {
+            return;
+        }
+        if ((0, externalUrl_1.isSameOrigin)(event.url, hubContents.getURL())) {
+            return;
+        }
+        event.preventDefault();
+        void (0, externalUrl_1.openExternalSafely)(event.url, 'unconfirmed');
+    };
+    win.on('closed', () => {
+        for (const [id, mappedWin] of windowByWebContentsId.entries()) {
+            if (mappedWin === win) {
+                windowByWebContentsId.delete(id);
+            }
+        }
+        win.off?.('resize', syncHubViewBounds);
+        hubContents.off?.('page-title-updated', handleTitleUpdate);
+        hubContents.off?.('will-navigate', guardExternalNavigation);
+        hubContents.off?.('will-redirect', guardExternalNavigation);
+        hubViewByWindow.delete(win);
+        const curtainContents = hubCurtainViewByWindow.get(win)?.webContents;
+        curtainContents?.off?.('render-process-gone', onCurtainProcessGone);
+        if (curtainContents && !curtainContents.isDestroyed?.()) {
+            curtainContents.close?.();
+        }
+        hubCurtainViewByWindow.delete(win);
+        hubCurtainColorByWindow.delete(win);
+        hubCurtainStateByWindow.delete(win);
+        if (!hubContents.isDestroyed?.()) {
+            hubContents.close?.();
         }
     });
-    win.webContents.setWindowOpenHandler((details) => {
-        void electron_1.shell.openExternal(details.url);
+    hubContents.setWindowOpenHandler((details) => {
+        void (0, externalUrl_1.openExternalSafely)(details.url, 'unconfirmed');
         return { action: 'deny' };
     });
+    hubContents.on('will-navigate', guardExternalNavigation);
+    hubContents.on('will-redirect', guardExternalNavigation);
     (0, loadingOverlay_1.attachLoadingOverlay)(win, foregroundColor, backgroundColor);
     (0, keybindings_1.registerKeybindings)(win, {
         createNewWindow: () => {
-            void createWindow(url, storageManager);
+            void createWindow(url, storageManager, { cascade: true });
         },
         onQuitRequested: () => {
             exports.showQuitConfirmation = true;
@@ -159,29 +501,42 @@ function createWindow(url, storageManager) {
         let isRestoringZoom = false;
         const applyStoredZoomLevel = async () => {
             const items = await storageManager.getItems();
+            if (win.isDestroyed?.() || hubContents.isDestroyed?.()) {
+                return;
+            }
             const stored = items[ZOOM_LEVEL_KEY];
             if (stored !== undefined) {
                 const level = parseFloat(stored);
                 if (!isNaN(level)) {
                     isRestoringZoom = true;
-                    win.webContents.setZoomLevel(level);
+                    hubContents.setZoomLevel(level);
                     isRestoringZoom = false;
                 }
             }
         };
-        win.webContents.on('did-finish-load', () => {
-            void applyStoredZoomLevel();
-        });
+        const handleDidFinishLoad = () => {
+            if (!win.isDestroyed?.() && !hubContents.isDestroyed?.()) {
+                void applyStoredZoomLevel();
+            }
+        };
+        hubContents.on('did-finish-load', handleDidFinishLoad);
         // Capture zoom changes from native menu accelerators, trackpad
         // pinch-to-zoom, or Ctrl+scroll so they are also persisted.
-        win.webContents.on('zoom-changed', (_event, _direction) => {
-            if (isRestoringZoom) {
+        const handleZoomChanged = (_event, _direction) => {
+            if (isRestoringZoom ||
+                win.isDestroyed?.() ||
+                hubContents.isDestroyed?.()) {
                 return;
             }
-            const currentLevel = win.webContents.getZoomLevel();
+            const currentLevel = hubContents.getZoomLevel();
             void storageManager.updateItems({
                 [ZOOM_LEVEL_KEY]: String(currentLevel),
             });
+        };
+        hubContents.on('zoom-changed', handleZoomChanged);
+        win.on('closed', () => {
+            hubContents.off?.('did-finish-load', handleDidFinishLoad);
+            hubContents.off?.('zoom-changed', handleZoomChanged);
         });
     }
     void win.loadURL(url);
@@ -191,7 +546,7 @@ function createWindow(url, storageManager) {
  * Focuses a window if it exists, or creates a new one.
  */
 const showOrCreateWindow = (port) => {
-    const wins = electron_1.BrowserWindow.getAllWindows();
+    const wins = getHubWindows();
     if (wins.length > 0) {
         if (wins[0].isMinimized()) {
             wins[0].restore();
