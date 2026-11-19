@@ -36,8 +36,8 @@ check('localize.js 声明了 KNOWN_CLI_FLAGS 白名单', Boolean(flagsMatch), tr
 const declaredFlags = flagsMatch
   ? flagsMatch[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).sort()
   : [];
-const expectedFlags = ['--apply-only', '--auto-restore', '--check-status', '--now'].sort();
-check('白名单恰好是真实存在的四个参数', declaredFlags.join(' '), expectedFlags.join(' '));
+const expectedFlags = ['--apply-only', '--auto-restore', '--check-status', '--now', '--no-kill'].sort();
+check('白名单为真实存在的核心参数集（含 --no-kill 免杀参数）', declaredFlags.join(' '), expectedFlags.join(' '));
 
 // 白名单里的每个参数都必须真的被 process.argv.includes 分支处理
 const unhandled = declaredFlags.filter(
@@ -81,8 +81,10 @@ for (const phantom of phantomCommands) {
 }
 
 for (const realFlag of expectedFlags) {
-  check(`README.md 记录了真实参数 ${realFlag}`, readmeSource.includes(`localize.js ${realFlag}`), true);
-  check(`README.en.md 记录了真实参数 ${realFlag}`, readmeEnSource.includes(`localize.js ${realFlag}`), true);
+  // --no-kill 在文档中为组合用法（localize.js --now --no-kill / 安全版 bat 传参），不强制前缀形态
+  const needle = realFlag === '--no-kill' ? '--no-kill' : `localize.js ${realFlag}`;
+  check(`README.md 记录了真实参数 ${realFlag}`, readmeSource.includes(needle), true);
+  check(`README.en.md 记录了真实参数 ${realFlag}`, readmeEnSource.includes(needle), true);
 }
 
 check('README.md 声明了参数白名单约束', readmeSource.includes('参数白名单'), true);

@@ -189,6 +189,10 @@ function killApp() {
 }
 
 async function stopAndWaitAppExit(timeoutMs = 5000) {
+  if (process.argv.includes('--no-kill')) {
+    log('已指定 --no-kill 参数，跳过终止 Antigravity 进程（若文件被占用将安全保留官方原版）。');
+    return;
+  }
   killApp();
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -2339,7 +2343,7 @@ function probeExistingLocalizerService(port) {
 }
 
 // 命令行参数白名单校验（issue #40）
-const KNOWN_CLI_FLAGS = ['--apply-only', '--auto-restore', '--check-status', '--now'];
+const KNOWN_CLI_FLAGS = ['--apply-only', '--auto-restore', '--check-status', '--now', '--no-kill'];
 const unknownCliFlags = process.argv
   .slice(2)
   .filter((arg) => arg.startsWith('--') && arg.length > 2 && !KNOWN_CLI_FLAGS.includes(arg));
@@ -2410,6 +2414,9 @@ if (require.main === module) {
     runLocalizationWorkflow(defaultAppDir)
       .then(() => {
         console.log('[成功] 汉化打包部署成功！');
+        console.log('');
+        console.log('💡 如果这个工具帮你节省了时间，欢迎到 GitHub 点个 ⭐ 支持一下：');
+        console.log('   https://github.com/klf8277/Antigravity-Chinese-Localization');
         process.exit(0);
       })
       .catch((err) => {
