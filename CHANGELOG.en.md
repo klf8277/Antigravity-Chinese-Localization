@@ -4,6 +4,59 @@ This document tracks all version releases, core architecture adaptations, and fe
 
 ---
 
+## v2.33.0 (2026-11-18) — Full Official v2.33.0 Support: Computer Use & Agents Live Preview, Remote SSH Lifecycle Upgrade, 9 New Voices & Dictation, Marketplace Bundles & Modular Hardening
+
+### 1. Comprehensive Localization for Official v2.33.0 Features
+- **Computer Use Desktop HUD & Agents Live Preview**: Full native and web localization for the new desktop control HUD (`dist/computer/hud.js`, `hudState.js`, `hudAgents.js`, `overlay.js`), `Agents Live` streaming tiles, pause/takeover banners, pointer intent badges, and macOS Screen Recording / Privacy permission cards.
+- **Remote SSH Subsystem Expansion**: Adapted to refactored server-restarting/disconnected pages (`disconnectedPage.js`), unified password/passphrase/PIN/host-key prompts (`sshPrompts.js`), shared-home takeover & version-mismatch restart sheets (`remoteManager.js`), remote microphone access & sign-in confirmation dialogs, SSH config BOM/UTF-16/permission diagnostics (`sshConfigHosts.js`), and OAuth callback pages (`signInCallback.js`).
+- **9 Gemini Live Voices & Voice Dictation**: Added all 9 voice profiles (`Arlo, Cleo, Finn, Fola, Gero, Lora, Neno, Olin, Tari`) to `VOICE_NAMES` and covered live audio transcription states and 12 host microphone diagnostic notices.
+- **Browser Per-Site Cookies, Keybinding Schemes & Marketplace Bundles**: Localized built-in browser `Browsing Data` & `Cookies by Site` management, `VS Code Default` vs `Antigravity (AGY) Style` keybinding schemes (with chord conflict notices), Marketplace `Bundles` & source-review modals, Step Plan progress pills, `Setup Routine` statuses, sidebar `Repo` grouping, and `NEW` model badges.
+
+### 2. Modular Engine Refactoring & End-to-End Security Hardening
+- **Modular `src/` Engine & Dictionary Deduplication**: Decoupled `src/dictionary.js`, `src/dom-translator.js`, and `src/build-injection.js`; eliminated all 619 duplicate keys; hoisted `O(1)` exact dictionary lookup ahead of dynamic regexes; enforced leaf-TextNode React Fiber safety and 100%-hit `coreWords` anti-Chinglish guards, keeping `app.asar.ready` compact at ~`7.08 MB`.
+- **Loopback Security & Cross-Platform Tooling**: Enforced `127.0.0.1` binding, `Host`/`Origin` + per-session CSRF token validation, explicit TLS verification, unified version-checked backups, fail-closed process checks, PowerShell ASAR version guards in offline `.bat` fallback, and reproducible UTF-8/POSIX ZIP packaging; **51/51 TDD test suites 100% ALL GREEN**.
+
+---
+
+## v2.32.2.1 (2026-11-17) — Conversation Page `Send all (N)` Button, Model Effort Tiers (`Extra`/`Max`) & Confirm Undo Completion
+
+### New Features & Fixes
+- **Queued Messages & `Send all (N)` Button Localization**: Added dynamic count regex `/^Send\s+all\s*\((\d+)\)$/i` (`Send all (1)` ➔ `全部发送 (1)`) alongside queued message card copy (`Sends after agent finishes working`, `Empty message`, `Queued message deleted`, `+N attachments`, `Send now: ...`).
+- **Model Effort Tiers Completion (`Extra` / `Max`)**: Added `Extra` (➔ `极高`) and `Max` (➔ `最高`) alongside existing `Low`/`Medium`/`High`, plus combined effort + context-window label matching and multi-model count formatting.
+- **Undo Confirmation Modal, Cleared-Step Notice & Battle Survey**: Covered undo eligibility tooltips, file/conversation-only rewind explanations, `View Diff for <file>`, the long-conversation cleared notice (`This conversation grew too large...`), approval/answer waiting states, and the Best of N preference survey (**+44** dictionary entries and **+8** dynamic regex rules).
+- **Scoped Decorator Exemption & Untouched Timestamps**: Exempted `[data-testid="queued-decorators"]` and `[data-testid="user-message-actions"]` in `shouldSkipNode` while preserving strict protection for `[data-testid="user-message-content"]` and keeping relative timestamps (`2m ago`, `24m`, `11h`) untouched.
+- **TDD Regression Gate**: Added [Ticket-40](tests/ticket-40-conversation-queue-and-tiers.test.js) covering all 45 test suites at **100% ALL GREEN**.
+
+---
+
+## v2.32.2 (2026-11-17) — Full Support for Official v2.32.2, Robotics Plugin, GitHub Fine-Grained Policies & Automation Schedule Editor
+
+### New Features & Core Improvements
+- **Zero-Day Support for Official v2.32.2**: Synchronized version metadata, pre-packaged `app.asar.ready`, and `extracted/` source tree with official Antigravity `v2.32.2`.
+- **Official Robotics Plugin Localization**: Full Chinese localization for the newly added official `Robotics` marketplace plugin description and all 9 suggested prompts (3D RGB localization, MuJoCo trajectory planning, eye-in-hand visual servoing, Sim-to-Real Gauntlet, quadruped RL, and SimReady asset authoring).
+- **GitHub Fine-Grained Permissions & Policies**: Complete coverage for `GitHub Policies` and `GitHub Permissions` settings UI (Organizations, Repositories, Contents, Issues, Pull Requests, Remote branches, and Workflow runs access rules).
+- **Coordinator, Cross-Device Handoff & Automation Schedule Editor**: Added **140** new unique dictionary entries, **9** dynamic regex rules, and **13** native menu mappings for `New Coordinator`, `Open on phone` / `Open on another device`, `New Side Question`, and the step-by-step Automation creation & schedule editor.
+- **Static Injection Engine Fix**: Improved `replaceInFile` idempotency check when multiple distinct English targets share the same Chinese replacement in the same file, ensuring `Open workspaces` in `dist/ipcHandlers.js` is translated cleanly.
+
+---
+
+## v2.32.1.2 (2026-11-16)
+
+### 1. Context Menus, Settings Copy, Bilingual Themes & Quota Regex Completion
+- **Native Tab & Sidebar Context Menu Completion (40 Items)**: Added 40 native menu items in `ipcHandlers.js` and `menu.js` covering tab management (Close Tab / Others / Left / Right / All / Terminal Tab, Pin/Unpin, Keep Open), Open In submenus, media actions, comment drafts, group management, shortcut actions, and `Proceed with Plan`, plus dynamic `(Default)` ➔ `（默认）` suffix translation.
+- **UI Dictionary & Dynamic Pattern Expansion (117 Entries)**: Covered right-sidebar Customize Sections, Side Questions, Skills Used, Cookies and site data, Browser downloads, experimental feature notices, `Show N more subagents`, case-insensitive `not found` / `File not found` guard, and upgraded quota regex to support model-prefixed strings (`Model — 100% · ...`).
+- **Bilingual Theme Preset Labels**: Upgraded all light and dark theme preset options to bilingual palette labels preserving recognizable names (e.g., `Catppuccin（猫布奇诺）`, `Everforest（森屿青）`, `Gruvbox Material（复古暖棕）`, `Dracula（德古拉）`, `Monokai（莫奈高彩）`, `Vesper（暮星）`) alongside `霓虹夜幕（深靛蓝）`.
+- **Home Greetings, Model Notices & Settings Overlays**: Bundles PR #57 (6 home greeting templates, third-party model launch/deprecation notices with localized Chinese dates, quota countdowns, AI credit balances, voice picker copy, queued message shortcut tooltips, and 48 detailed settings items; thanks to @angel12538).
+
+### 2. Upstream Bug Hot-Fix
+- **Sidebar Project Drag Offset Hot-Fix**: Injected `setupSidebarProjectDragFix` in the runtime layer to fix upstream Antigravity v2.32.1 measurement race conditions and first-item `topBound` lockup when dragging projects with expanded folders.
+
+### 3. Community Governance, 1,000-Star Milestone & Test Safeguards
+- **Community Org Migration & GitHub Discussions**: Transitioned repository maintenance to [`antigravity-cn-community`](https://github.com/antigravity-cn-community/Antigravity-Chinese-Localization), enabled Discussions, refreshed bilingual READMEs with the 1,000-Star growth chart, and merged PR #58 (cumulative MIT copyright notice confirmed by original creator `@liominsb`).
+- **4-Segment Update Tag & All-Green Gate**: Uses `v2.32.1.2` for the control center and Release tag so existing `v2.32.1` control centers automatically detect the update, while keeping the internal `app.asar.ready` package version at `2.32.1` for strict compatibility with upstream `auto-restore` checks; all **42 TDD test suites 100% ALL GREEN**.
+
+---
+
 ## v2.32.1 (2026-11-14)
 
 ### 1. Seamless Adaptation to Official Antigravity v2.32.1 & Remote SSH Subsystem
@@ -21,6 +74,7 @@ This document tracks all version releases, core architecture adaptations, and fe
 - **Selection Floating Bubble & Quick Ask**: Localized the floating action bubble `Ask /btw` to "通过 /btw 提问" with privileged bypass handling for instant responsiveness.
 - **Empty State Container-Level Convergence**: Introduced container-level pre-inspection for React-split empty state text nodes (e.g., `No 自动化 yet`), seamlessly consolidating them into idiomatic "暂无自动化", "暂无对话", and "暂无分组".
 - **Official Plugin Ecosystem Deep Translation**: Fully localized the updated Google Workspace slogan, official Gmail plugin (overview, prompts, commands, descriptions), and 16 newly added Marketplace plugins including Arize AX, Better Stack, Cloudflare, CodeRabbit, Tavily, and SonarQube.
+- **Home Greetings, Model Notices & Settings Copy**: Added deep regex templates for 6 home greeting styles (retaining username interpolation); structured matching for third-party model release and deprecation notices with localized Chinese dates; covered quota reset countdowns, AI credit balances, and voice picker actions; added 48 detailed settings long descriptions; added Ticket-37 and Ticket-38 with 115 test assertions (special thanks to @angel12538 in #57).
 - **Added Remote SSH UI & Command Patterns**: Added dictionary and dynamic rules for SSH remote host connections and command palette prompts.
 
 ### 3. Artifacts & Test Safeguards

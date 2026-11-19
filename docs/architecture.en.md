@@ -9,8 +9,8 @@ This document is dedicated to developers and contributors interested in the inne
 ```text
 [ Antigravity Launches ]
         │
-        ├─► [ Native: dist/loadingOverlay.js ] ──► Localized loading splash screen
-        ├─► [ Native: dist/menu.js & tray.js ] ──► Localized menus & system tray
+        ├─► [ Native: dist/menu.js & updater.js ] ──► Localized menus & auto-updater state
+        ├─► [ Native: dist/tray.js & ipcHandlers.js ] ──► Localized system tray & context menus
         │
         └─► [ Web Container: dist/preload.js ]
                     │
@@ -134,12 +134,12 @@ To prevent password managers (1Password, Bitwarden, etc.) from falsely recognizi
 
 ## 6. Package Slimming & Upgrades
 
-### 1. 4.53 MB Official Size Guarantee
-Native modules like `chrome-devtools-mcp` (17 MB) reside in `resources/app.asar.unpacked/`. Packing rules must explicitly decouple them:
+### 1. Official Slim Size Guarantee (4.53 MB on v2.12.0 / ~6.23 MB on v2.33.0)
+Native modules like `chrome-devtools-mcp` reside in `resources/app.asar.unpacked/`. Packing rules must explicitly decouple them:
 ```bash
-npx --yes asar pack "<extract_dir>" "<output_asar>" --unpack-dir "**/chrome-devtools-mcp/**"
+npx --yes @electron/asar@3.2.18 pack "<extract_dir>" "<output_asar>" --unpack-dir "**/chrome-devtools-mcp/**"
 ```
-This restores package size strictly to **4.53 MB**.
+This prevents 21MB+ bundle bloat and keeps `app.asar` strictly aligned with each upstream version's official distribution size (4.53 MB on v2.12.0, ~6.23 MB on v2.33.0). In addition, the dictionary and DOM runtime engine are modularized under `src/dictionary.js`, `src/dom-translator.js`, and `src/build-injection.js` to eliminate backtick template-escaping bugs.
 
 ### 2. `injectOrUpdate` Seamless Upgrades
 Truncates legacy injection blocks cleanly and writes the updated engine payload, ensuring smooth upgrades without manual cleanups.
@@ -151,12 +151,12 @@ Truncates legacy injection blocks cleanly and writes the updated engine payload,
 ### 1. Architectural Trade-off (UX vs Repository Size)
 To give end users a seamless out-of-the-box experience without build toolchain prerequisites, PR #42 tracked the pre-compiled patch `app.asar.ready` directly in Git.
 - **Core Benefit**: Users downloading the source archive (via GitHub "Download ZIP" or clone) get the pre-built patch ready for instant execution. Running the one-click batch script requires zero local Node.js/asar dependencies.
-- **Physical Cost**: As a content-addressable storage engine, Git cannot perform efficient line-by-line delta compression on monolithic binary archives (`.asar`). Each version bump writes a ~5.0 MB standalone Blob object into `.git/objects`, causing linear history growth over time.
+- **Physical Cost**: As a content-addressable storage engine, Git cannot perform efficient line-by-line delta compression on monolithic binary archives (`.asar`). Each version bump writes a ~6.35 MiB (~6.66 MB) standalone Blob object into `.git/objects`, causing linear history growth over time.
 
 ### 2. Scope of Impact
 - **End Users (Completely Unaffected)**:
-  1. Users downloading release assets (`app.asar` / `default.zip`) receive clean snapshots with zero Git history (constant ~5 MB);
-  2. Users clicking "Download ZIP" on GitHub download branch snapshots with no `.git` metadata (~5 MB);
+  1. Users downloading release assets (`app.asar` / `default.zip`) receive clean snapshots with zero Git history (constant ~6.35 MiB / 6.66 MB);
+  2. Users clicking "Download ZIP" on GitHub download branch snapshots with no `.git` metadata;
   3. Local installation directories maintain only the single active file.
 - **Developers & Full Clones (Historical Accumulation)**:
   Running a full `git clone` pulls the entire commit history, which accumulates ~5 MB per release.
@@ -167,7 +167,7 @@ To give end users a seamless out-of-the-box experience without build toolchain p
 Developers contributing or working on source code should use shallow clones to skip large historical blobs:
 ```bash
 # Clone only the latest commit; historical payload drops to zero (~5 MB download)
-git clone --depth=1 https://github.com/liominsb/Antigravity-Chinese-Localization.git
+git clone --depth=1 https://github.com/antigravity-cn-community/Antigravity-Chinese-Localization.git
 ```
 Unshallow can be performed on demand (`git fetch --unshallow`) if full history is ever required.
 

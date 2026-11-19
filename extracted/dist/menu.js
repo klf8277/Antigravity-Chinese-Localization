@@ -60,7 +60,7 @@ function createHubZoomMenuItem(options) {
     });
 }
 function configureViewZoomMenu(appMenu) {
-    const viewMenuItem = appMenu.items?.find((item) => item.label === 'View');
+    const viewMenuItem = appMenu.items?.find((item) => item.label === 'View' || item.label === '视图');
     const viewSubmenu = viewMenuItem?.submenu;
     if (!viewSubmenu || !Array.isArray(viewSubmenu.items)) {
         return;
@@ -179,7 +179,7 @@ function setupApplicationMenu(url) {
     configureViewZoomMenu(menu);
     (0, debugConsole_1.configureDebugConsoleMenu)(menu);
     // Re-apply the menu so the change takes effect.
-    if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } electron_1.Menu.setApplicationMenu(menu);
+    if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } electron_1.Menu.setApplicationMenu(menu);
     // Asynchronously adds "Connect to WSL" (Windows only, when WSL is present).
     void addWslConnectMenu(menu);
 }
@@ -231,7 +231,7 @@ async function addWslConnectMenu(menu) {
     if (reopen) {
         addItemToSubmenu(menu, 'File', 2, new electron_1.MenuItem(reopen));
     }
-    if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } electron_1.Menu.setApplicationMenu(menu);
+    if (typeof translateMenu === 'function') { menu.items.forEach(translateMenu); } electron_1.Menu.setApplicationMenu(menu);
 }
 /** Relaunches the app connected to `distro` ('' = local mode). */
 function relaunchWithWslDistro(distro) {
@@ -305,8 +305,13 @@ const menuTranslationMap = {
   'Split': '分屏',
   'Split Right': '向右分屏',
   'Split Down': '向下分屏',
+  'Split Left': '向左分屏',
+  'Split Up': '向上分屏',
   'Replace With New': '替换为新建',
+  'Replace with New': '替换为新建',
+  'Replace with new': '替换为新建',
   'Remove From Split': '从分屏中移除',
+  'Remove from Split': '从分屏中移除',
   'Split Terminal': '拆分终端',
   'Split Conversation Vertically': '垂直分屏对话',
   'Split Conversation Horizontally': '水平分屏对话',
@@ -336,15 +341,95 @@ const menuTranslationMap = {
   'Project Path': '项目路径',
   'Workspace Name': '工作区名称',
   'Workspace Path': '工作区路径',
+  'Worktree Name': '工作树名称',
   'Conversation Path': '对话路径',
-  'Split Right': '向右分屏',
-  'Split Down': '向下分屏',
-  'Split Left': '向左分屏',
-  'Split Up': '向上分屏',
-  'Replace with New': '替换为新建',
-  'Replace With New': '替换为新建',
-  'Replace with new': '替换为新建',
   'Ask /btw': '通过 /btw 提问',
+  // 侧边栏标签页、文件查看器、媒体与链接右键菜单补充
+  'Close Tab': '关闭标签页',
+  'Close Other Tabs': '关闭其他标签页',
+  'Close Tabs to the Left': '关闭左侧标签页',
+  'Close Tabs to the Right': '关闭右侧标签页',
+  'Close All Tabs': '关闭全部标签页',
+  'Close Terminal Tab': '关闭终端标签页',
+  'Keep Open': '保持打开',
+  'Pin Tab': '固定标签页',
+  'Unpin Tab': '取消固定标签页',
+  'Reopen Closed Tab': '重新打开已关闭的标签页',
+  'Open in Tab': '在标签页中打开',
+  'Open in New Tab': '在新标签页中打开',
+  'Open in New Window': '在新窗口中打开',
+  'Open in Side Panel': '在侧边栏中打开',
+  'Open in Built-in Browser': '在内置浏览器中打开',
+  'Open in External Browser': '在外部浏览器中打开',
+  'Open Link in New Tab': '在新标签页中打开链接',
+  'Open Link in External Browser': '在外部浏览器中打开链接',
+  'Open Image in New Tab': '在新标签页中打开图片',
+  'Open Conversation in New Tab': '在新标签页中打开对话',
+  'Open In': '打开方式',
+  'Side Panel': '侧边栏',
+  'Built-in Browser': '内置浏览器',
+  'External Browser': '外部浏览器',
+  'Link Settings': '链接设置',
+  'Copy Image': '复制图片',
+  'Copy Image Address': '复制图片地址',
+  'Copy Link Address': '复制链接地址',
+  'Copy Message': '复制消息',
+  'Save Image': '保存图片',
+  'Save Video': '保存视频',
+  'Undo to Here': '撤销到此处',
+  'Edit Shortcut': '编辑快捷键',
+  'Add Shortcut': '添加快捷键',
+  'Remove Shortcut': '移除快捷键',
+  'Reset to Default': '重置为默认',
+  'Move to Group': '移动到分组',
+  'New Group': '新建分组',
+  'Rename Group': '重命名分组',
+  'Delete Group': '删除分组',
+  'Move Up': '上移',
+  'Move Down': '下移',
+  'Remove from Group': '从分组中移除',
+  'Delete Permanently': '永久删除',
+  'Proceed with Plan': '按计划继续',
+  // 2.32.2 新增菜单与分屏/远程操作
+  'Copy Conversation Markdown': '复制对话 Markdown',
+  'Pin This Conversation': '置顶此对话',
+  'Unpin This Conversation': '取消置顶此对话',
+  'Rename This Conversation': '重命名此对话',
+  'Copy Trajectory ID': '复制轨迹 ID',
+  'Copy Config File Path': '复制配置文件路径',
+  'Remove from Recent': '从最近记录中移除',
+  'Find References': '查找引用',
+  'Open on phone': '在手机上打开',
+  'Open on another device': '在其他设备上打开',
+  'Coordinator settings': '协调器设置',
+  // 2.33.0 新增菜单、Computer Use 虚拟机控制、SSH 远程操作与组合包
+  'Interrupt Agent': '中断智能体',
+  'Disconnect': '断开连接',
+  'Stop Server': '停止服务端',
+  'Stop SSH Server': '停止 SSH 服务端',
+  'Stop SSH Server…': '停止 SSH 服务端…',
+  'Restart SSH Server': '重启 SSH 服务端',
+  'SSH Host…': 'SSH 主机…',
+  'SSH Host...': 'SSH 主机...',
+  'Connect to SSH Host': '连接到 SSH 主机',
+  'Connect to SSH Host…': '连接到 SSH 主机…',
+  'Side Question Selection': '针对所选内容发起侧边提问',
+  'Quote Selection': '引用所选内容',
+  'Open in Code Search': '在代码搜索中打开',
+  'Comment on Selection': '针对所选内容添加评论',
+  'Switch to This Computer': '切换到本机',
+  'This Computer': '本机',
+  'Toggle Virtual Machine': '切换虚拟机面板',
+  'Agents': '智能体',
+  'Screen Recording': '屏幕录制',
+  'Add bundle': '添加组合包',
+  'Remove bundle': '移除组合包',
+  'Terminal: Select All': '终端：全选',
+  'Terminal: Add to Chat': '终端：添加到对话',
+  'Maximize': '最大化',
+  'Delete Hook': '删除钩子',
+  'Add Hook Card': '添加钩子卡片',
+  'Delete Handler': '删除处理程序',
 };
 function translateMenu(menuItem) {
   if (menuItem.label && menuTranslationMap[menuItem.label]) {

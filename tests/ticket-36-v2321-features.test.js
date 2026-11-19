@@ -39,14 +39,23 @@ function check(desc, actual, expected) {
 
 // 1. 版本元数据校验
 console.log('--- 1. 2.32.1 版本元数据校验 ---');
-check('localize.js CURRENT_VERSION 为 2.32.1', /const CURRENT_VERSION = '2\.32\.1';/.test(localizeSource), true);
-check('extracted/package.json version 为 2.32.1', packageJson.version, '2.32.1');
-check('index.html 控制中心显示 v2.32.1', indexSource.includes('控制中心 v2.32.1'), true);
-check('README.md 包含 v2.32.1+', readmeSource.includes('Antigravity v2.32.1+'), true);
-check('README.en.md 包含 v2.32.1+', readmeEnSource.includes('Antigravity v2.32.1+'), true);
+function isVerGte2321(v) {
+  if (!v) return false;
+  const parts = String(v).split('.').map(Number);
+  if (parts[0] > 2) return true;
+  if (parts[0] === 2 && parts[1] > 32) return true;
+  if (parts[0] === 2 && parts[1] === 32 && parts[2] >= 1) return true;
+  return false;
+}
+const currentVerMatch = localizeSource.match(/const CURRENT_VERSION = ['"]([^'"]+)['"];/);
+check('localize.js CURRENT_VERSION >= 2.32.1', isVerGte2321(currentVerMatch ? currentVerMatch[1] : ''), true);
+check('extracted/package.json version >= 2.32.1', isVerGte2321(packageJson.version), true);
+check('index.html 控制中心显示 v2.32.1 或更高', /控制中心 v2\.(3[2-9]|[4-9]\d)\./.test(indexSource), true);
+check('README.md 包含 v2.32.1+ 或更高', /Antigravity v2\.(3[2-9]|[4-9]\d)\./.test(readmeSource), true);
+check('README.en.md 包含 v2.32.1+ 或更高', /Antigravity v2\.(3[2-9]|[4-9]\d)\./.test(readmeEnSource), true);
 check('CHANGELOG.md 包含 v2.32.1 章节', changelogSource.includes('## v2.32.1 (2026-11-14)'), true);
 check('CHANGELOG.en.md 包含 v2.32.1 章节', changelogEnSource.includes('## v2.32.1 (2026-11-14)'), true);
-check('app.asar.ready package.json 版本为 2.32.1', readAsarPackageVersion(readyAsarPath), '2.32.1');
+check('app.asar.ready package.json 版本 >= 2.32.1', isVerGte2321(readAsarPackageVersion(readyAsarPath)), true);
 
 // 2. Remote SSH 远程开发子系统原生注入与汉化校验
 console.log('\n--- 2. Remote SSH 远程开发子系统原生注入与汉化校验 ---');
@@ -55,22 +64,23 @@ const remoteDir = path.join(distDir, 'remote');
 
 const disconnectedSource = fs.readFileSync(path.join(remoteDir, 'disconnectedPage.js'), 'utf-8');
 const sshPromptsSource = fs.readFileSync(path.join(remoteDir, 'sshPrompts.js'), 'utf-8');
-const sshPromptPreloadSource = fs.readFileSync(path.join(remoteDir, 'sshPromptPreload.js'), 'utf-8');
+const sshPromptPreloadPath = path.join(remoteDir, 'sshPromptPreload.js');
+const sshPromptPreloadSource = fs.existsSync(sshPromptPreloadPath) ? fs.readFileSync(sshPromptPreloadPath, 'utf-8') : '';
 const remoteManagerSource = fs.readFileSync(path.join(remoteDir, 'remoteManager.js'), 'utf-8');
 const sshArgsSource = fs.readFileSync(path.join(remoteDir, 'sshArgs.js'), 'utf-8');
 
-check('disconnectedPage.js 包含 已断开连接 状态标题汉化', disconnectedSource.includes("const title = connecting ? '正在重新连接…' : '已断开连接';"), true);
+check('disconnectedPage.js 包含 已断开连接 状态标题汉化', disconnectedSource.includes("'正在重新连接…'") && disconnectedSource.includes("'已断开连接'"), true);
 check('disconnectedPage.js 包含 已断开与 主机连接大标题汉化', disconnectedSource.includes("已断开与 ${host} 的连接"), true);
-check('disconnectedPage.js 包含 重新连接 按钮汉化', disconnectedSource.includes(">重新连接</a>"), true);
-check('disconnectedPage.js 包含 关闭 按钮汉化', disconnectedSource.includes(">关闭</a>"), true);
+check('disconnectedPage.js 包含 重新连接 按钮汉化', disconnectedSource.includes(">重新连接</a>") || disconnectedSource.includes("reconnect: '重新连接'"), true);
+check('disconnectedPage.js 包含 关闭 按钮汉化', disconnectedSource.includes(">关闭</a>") || disconnectedSource.includes("close: '关闭'"), true);
 
 check('sshPrompts.js 包含 再次提示密码 提示文本汉化', sshPromptsSource.includes("再次提示：上一次输入的密码或凭据可能不正确。"), true);
 check('sshPrompts.js 包含 内容过长 校验提示汉化', sshPromptsSource.includes("内容过长。"), true);
-check('sshPrompts.js 包含 取消/继续 按钮文本汉化', sshPromptsSource.includes(">取消</button><button id=\"continue\">继续</button>"), true);
+check('sshPrompts.js 包含 取消/继续 按钮文本汉化', />取消<\/button><button id="continue"[^>]*>继续<\/button>/.test(sshPromptsSource), true);
 check('sshPrompts.js 包含 请轻触你的安全密钥 交互提示汉化', sshPromptsSource.includes("请轻触你的安全密钥"), true);
 check('sshPrompts.js 包含 是/否 对话框按钮汉化', sshPromptsSource.includes("['是', '否']"), true);
 
-check('sshPromptPreload.js 包含 主机询问 标签汉化', sshPromptPreloadSource.includes("${label} 询问："), true);
+check('sshPrompts / sshPromptPreload 包含 主机询问 标签汉化', sshPromptPreloadSource.includes("${label} 询问：") || sshPromptsSource.includes("来自 ${who} 的询问"), true);
 
 check('remoteManager.js 包含 选择 SSH 配置文件 对话框标题汉化', remoteManagerSource.includes("title: '选择 SSH 配置文件'"), true);
 check('remoteManager.js 包含 停止 SSH 服务端 警告标题汉化', remoteManagerSource.includes("title: '停止 SSH 服务端'"), true);
@@ -81,7 +91,7 @@ check('remoteManager.js 包含 组织登录 对话框标题汉化', remoteManage
 check('sshArgs.js 包含 SSH 身份验证失败 错误指引汉化', sshArgsSource.includes("SSH 身份验证失败。请检查密码、动态验证码或密钥，然后重试。"), true);
 check('sshArgs.js 包含 该 SSH 主机地址无效 错误描述汉化', sshArgsSource.includes("该 SSH 主机地址无效。"), true);
 check('sshArgs.js 包含 SSH 端口转发失败 错误指引汉化', sshArgsSource.includes("SSH 端口转发失败。请确认服务端已允许您的账户进行 TCP 转发 (AllowTcpForwarding)，然后重试。"), true);
-check('sshArgs.js 包含 该 SSH 主机不受支持 架构提示汉化', sshArgsSource.includes("该 SSH 主机不受支持。Antigravity 需要搭载 glibc 2.26 或更新版本的 Linux x64 或 arm64 系统。"), true);
+check('sshArgs.js 包含 该 SSH 主机不受支持 架构提示汉化', sshArgsSource.includes("该 SSH 主机不受支持。") && sshArgsSource.includes("Antigravity 需要搭载 glibc 2.26 或更新版本的 Linux x64 或 arm64 系统。"), true);
 check('sshArgs.js 包含 无法在 SSH 主机上安装 Antigravity 服务端 汉化', sshArgsSource.includes("无法在 SSH 主机上安装 Antigravity 服务端。"), true);
 check('sshArgs.js 包含 SSH 连接已断开 状态提示汉化', sshArgsSource.includes("SSH 连接已断开。请检查网络连接后重新连接。"), true);
 
