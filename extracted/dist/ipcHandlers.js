@@ -38,7 +38,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerIpcHandlers = registerIpcHandlers;
 const electron_1 = require("electron");
-const electron_updater_1 = require("electron-updater");
 const types_1 = require("./types");
 const updater_1 = require("./updater");
 const main_1 = __importDefault(require("electron-log/main"));
@@ -58,6 +57,7 @@ const menu_1 = require("./menu");
 const scriptJail_1 = require("./scriptJail");
 const externalUrl_1 = require("./externalUrl");
 const utils_1 = require("./utils");
+const windowState_1 = require("./windowState");
 const hubZoom_1 = require("./hubZoom");
 const wcvBrowserRegistry_1 = require("./wcvBrowserRegistry");
 const wcvIpcHandlers_1 = require("./wcvIpcHandlers");
@@ -265,13 +265,7 @@ function registerIpcHandlers(storageManager, deps = {}) {
     localOnly('updater:apply', async () => {
         (0, updater_1.broadcastState)({ type: types_1.UpdateState.Ready });
     });
-    localOnly('updater:quit-and-install', () => {
-        if (!electron_1.app.isPackaged) {
-            console.log('[AutoUpdater] Skipping quitAndInstall (requires a packaged app).');
-            return;
-        }
-        electron_updater_1.autoUpdater.quitAndInstall();
-    });
+    localOnly('updater:quit-and-install', () => (0, updater_1.quitAndInstall)());
     localOnly('updater:get-state', () => {
         return (0, updater_1.getLastState)();
     });
@@ -481,39 +475,57 @@ function registerIpcHandlers(storageManager, deps = {}) {
     });
     // Window
     electron_1.ipcMain.handle('window:set-title-bar-overlay', async (event, options) => {
-        const win = getTargetHubWindow(event?.sender);
-        if (win && process.platform === 'win32') {
+        // The sender's own window: each window has its own overlay, and a theme
+        // change reaches every window's renderer, focused or not.
+        const win = windowForSender(event?.sender);
+        // Windows and Linux windows both get a native caption-button overlay
+        // (see createWindow in utils.ts), so keep them in sync; macOS has none.
+        // A window whose page draws its own buttons (Insiders by default, or
+        // --custom-window-controls) has no overlay to update (Electron would
+        // throw), so do nothing for it. Asked per window, not per app: SSH
+        // windows keep the native buttons (see createWindow), so update theirs.
+        if (win && !(0, utils_1.isMacOS)() && !(0, utils_1.hasCustomWindowControls)(win)) {
+            // Omit a missing height: Electron keeps the fields it isn't given, so
+            // a colors-only update must not reset a taller titlebar's buttons.
+            // The key is left out rather than set to `undefined`: Electron checks
+            // whether each field is present, and today an `undefined` one is only
+            // skipped because converting it to an int fails quietly.
+            const height = (0, windowState_1.titleBarOverlayHeight)(options.height);
             win.setTitleBarOverlay({
                 color: options.color,
                 symbolColor: options.symbolColor,
-                height: 30,
+                ...(height !== undefined ? { height } : {}),
             });
         }
     });
+    // Window buttons act on the sender's own window, never the focused one: a
+    // page-drawn button can be clicked, or isMaximized() asked, in a window
+    // that isn't focused (e.g. one just opened in the background). A sender
+    // with no Hub window gets nothing.
     electron_1.ipcMain.handle('window:minimize', async (event) => {
-        const win = getTargetHubWindow(event?.sender);
+        const win = windowForSender(event?.sender);
         if (win) {
             win.minimize();
         }
     });
     electron_1.ipcMain.handle('window:maximize', async (event) => {
-        const win = getTargetHubWindow(event?.sender);
+        const win = windowForSender(event?.sender);
         if (win) {
             win.maximize();
         }
     });
     electron_1.ipcMain.handle('window:unmaximize', async (event) => {
-        const win = getTargetHubWindow(event?.sender);
+        const win = windowForSender(event?.sender);
         if (win) {
             win.unmaximize();
         }
     });
     electron_1.ipcMain.handle('window:is-maximized', async (event) => {
-        const win = getTargetHubWindow(event?.sender);
+        const win = windowForSender(event?.sender);
         return win ? win.isMaximized() : false;
     });
     electron_1.ipcMain.handle('window:close', async (event) => {
-        const win = getTargetHubWindow(event?.sender);
+        const win = windowForSender(event?.sender);
         if (win) {
             win.close();
         }
@@ -1316,6 +1328,45 @@ const contextMenuTranslationMap = {
   'Delete Hook': '删除钩子',
   'Add Hook Card': '添加钩子卡片',
   'Delete Handler': '删除处理程序',
+  // 2.34.0 右侧预览栏、插件侧栏、消息气泡与发送按钮原生右键菜单补齐
+  'Copy File Path': '复制文件路径',
+  'Copy File Name': '复制文件名',
+  'Copy Content': '复制内容',
+  'Hide': '隐藏',
+  'Reply': '回复',
+  'Manual Order': '手动排序',
+  'Send Message': '发送消息',
+  'Queue Message': '排队发送消息',
+  'Send Immediately': '立即发送',
+  // 2.35.0 收件箱、对话移动、侧边提问继续、打开方式与远程智能体原生上下文菜单补齐
+  'Resolve': '标为已解决',
+  'Return to Inbox': '移回收件箱',
+  'Inbox Mode': '收件箱模式',
+  'Working Section': '“正在工作”分组',
+  'Auto-Resolve': '自动解决',
+  'Subtitle': '副标题',
+  'Move to Project': '移动到项目',
+  'Move to Workspace': '移动到工作区',
+  'New Project...': '新建项目...',
+  'New Workspace...': '新建工作区...',
+  'Remove from Project': '从项目中移除',
+  'Remove from Workspace': '从工作区中移除',
+  'Continue as a New Conversation': '作为新对话继续',
+  'Continue in Current Workspace': '在当前工作区继续',
+  'Continue in Shared Workspace': '在共享工作区继续',
+  'Continue in New Workspace': '在新工作区继续',
+  'Open with': '打开方式',
+  'Text viewer': '文本查看器',
+  'Image viewer': '图片查看器',
+  'Video player': '视频播放器',
+  'Audio player': '音频播放器',
+  'HTML viewer': 'HTML 查看器',
+  'Notebook viewer': 'Notebook 查看器',
+  'PDF viewer': 'PDF 查看器',
+  'System default app': '系统默认应用',
+  'Application Menu': '应用菜单',
+  'For Me': '仅自己使用',
+  'For My Team': '团队共享',
 };
 function translateContextLabel(lbl) {
   if (!lbl) return '';
@@ -1327,6 +1378,12 @@ function translateContextLabel(lbl) {
     if (contextMenuTranslationMap[base]) return contextMenuTranslationMap[base] + '（默认）';
     const openMatch = base.match(/^Open in\s+(.+)$/i);
     if (openMatch) return '在 ' + openMatch[1] + ' 中打开（默认）';
+  }
+  const statusSuffixMatch = trimmed.match(/^(.+?)\s+\((Not running|Sidecar disabled)\)$/);
+  if (statusSuffixMatch) {
+    const baseCn = contextMenuTranslationMap[statusSuffixMatch[1]] || statusSuffixMatch[1];
+    const reasonCn = statusSuffixMatch[2] === 'Sidecar disabled' ? 'Sidecar 已禁用' : '未运行';
+    return baseCn + '（' + reasonCn + '）';
   }
   let m = trimmed.match(/^Move to Group:\s*(.+)$/i);
   if (m) return '移动到分组：' + m[1];

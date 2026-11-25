@@ -4,6 +4,97 @@ This document tracks all version releases, core architecture adaptations, and fe
 
 ---
 
+## v2.35.1 (2026-11-25) — Official v2.35.1 Sync, AI Chat Markdown & Inline-Code Isolation (Issue #80) & Web UI Coverage Expansion
+
+### 1. Official v2.35.1 Verification & Version Baseline Alignment (Merged PR #82 by `@Justin-Mai`, with thanks to PR #83 by `@wyun100`)
+- **Main-Process (`app.asar`) & Embedded Web UI Diff Audit**: Diffed all 180 non-`node_modules` files in the official `v2.35.1` `app.asar` and all 548 embedded Web UI assets against `v2.35.0`; confirmed only `package.json` version changed upstream (`0` added/removed modules, `0` UI byte diffs) and all 231 main-process patch points in `localize.js` hit with `0` skips.
+- **Version Gate & Clean Slim `app.asar.ready` Rebuild**: Bumped `localize.js` (`CURRENT_VERSION` / `RELEASE_VERSION`), `package.json`, `extracted/package.json`, `index.html`, and slim `app.asar.ready` to **`2.35.1`**; after eliminating Windows CRLF packaging inflation, `app.asar.ready` aligns cleanly with the official slim spec at **`7,970,885` bytes (`7.60 MiB`)** for seamless `--auto-restore` and zero-Node offline compatibility.
+
+### 2. AI Chat Body, Markdown & Inline-Code Physical Isolation (Fixed Issue #80 by `@Miafetta` & PR #82 by `@Justin-Mai`)
+- **`[data-markdown-root]` Isolation & Targeted UI Whitelist**: Audited all 11 upstream `w1` Markdown renderer callers to physically shield AI chat replies, Side Question replies, artifacts, Markdown previews, `markdown-code-block-preview`, `automation-instructions-markdown`, and hover docs from accidental translation, while whitelisting only `toast-notification` and `nux-card` system UI chrome (keeping their inner `<code>`/`<pre>` nodes locked).
+- **Inline-Code Shielding & 4 Edge-Case Hardening Fixes**: Protected `CODE`/`PRE`/`KBD`/`SAMP`/`VAR` across ancestor chains and combined-sentence anchors; closed the pre-existing `Quote`/`Ask /btw` privileged-bypass loophole inside protected Markdown/code/thinking containers; extracted a unified `hasAttr` helper fixing `undefined !== null` false positives on `data-markdown-root` and `data-project-glyph`; added a `shouldSkipNode` guard at the entry of `tryCombinedSentenceTranslation`; and upgraded `collectSafeLeafTextNodes` to skip all `isNonComposerProtectedSelf` containers uniformly.
+
+### 3. Web UI Coverage Expansion (+86 Zero-Duplicate Static Entries, +16 `$`-Safe Dynamic Rules)
+- **Feedback Dialog & Upload Validation (`XUb` / `YUb`)**: Localized Auth & Billing feedback guidance bullets, Google Chat space links, `Screenshot must be under 10 MB`, `Attaching logs requires an email address`, and `Submitting...`.
+- **Hooks & Organization MCP Allowlist (`c0b` / `d0b` / `e0b`)**: Localized `Organization MCP Allowlist (Read-Only)`, `Pre Tool Use` / `Post Tool Use`, hook trigger descriptions, `Timeout:` / `Handler #` / `Matcher:`, and terminology-aligned dynamic `Hook will only trigger if the tool name matches/starts with ...` rules.
+- **Onboarding Terms, AI Credits & Verification**: Localized `Terms of Service & Data Use` risk notice, Onboarding subtitles, sidebar sign-in/verification prompts, `Models Tab` (fixing the `"模型制表符"` coreWords fallback), and `AI Credits are used when ...` (aligned with repository-wide `AI 点数` terminology).
+- **Workflow Migration, Queue Announcements, Viewers, Trajectory Stats & Git/Schedule Rules**: Localized workflow migration banner (`Migrate with Agent`), tool-approval guidance, subagent/composer placeholders, `Trajectory Stats` table, PDF smart-text notice, LaTeX (fixed CJK spacing)/Mermaid error prefixes, full queued-message accessibility announcements, `Proceed with implementation plan and N comment(s)`, `Show N earlier steps`, `Turn/Go to turn X of Y`, `N File(s) With Changes`, Git commit/push/publish statuses, and strict time-guarded `Every hour` / `Today HH:MM` rules.
+
+### 4. End-to-End Verification & Gate
+- Zero-duplicate dictionary expanded to **`4,923` entries**; added `tests/ticket-57-v2351-features.test.js` and `tests/ticket-58-chat-markdown-skip.test.js` (covering all 8 AI reply, inline-code, `Quote`-bypass, and minimal-mock regression groups) in `tests/run-all-tests.js`, verified zero syntax errors across all 176 `extracted/dist/**/*.js` files and strict `.bat`/`.sh`/`.command` line endings; **65/65 TDD test suites 100% ALL GREEN**.
+
+---
+
+## v2.35.0 (2026-11-24) — Full Official v2.35.0 Support: Inbox Mode & Auto-Resolve, Plugin Permissions, Multi-Language Voice Dictation, Side Question Promotion, Onboarding/WIF Auth & Remote Agents
+
+### 1. Official v2.35.0 Main-Process Sync & Patch Verification
+- **Synced Main-Process Tree, CRLF Idempotency Fix & Slim `app.asar.ready`**: Synced the 4 newly added upstream `v2.35.0` modules (`dist/appChannel.js`, `dist/customWindowControls.js`, `dist/computer/idleProbe.js`, `dist/computer/permissionGuide.js`) and 24 modified modules while removing upstream-deleted `dist/computer/hud.js`, `hudAgents.js`, and `hudState.js` (keeping backward-compatible guards in `localize.js` for `v2.33.0 ~ v2.34.0` clients); fixed `replaceInFile` CRLF/LF idempotency on single-line-to-multiline replacements (`dist/utils.js` hook strictly registered/unregistered once); all 231 main-process patches hit with `0` skips. Rebuilt slim `app.asar.ready` (`7,926,656` bytes / `7.56 MiB`, version `2.35.0`).
+- **Expanded Native & Context Menus (`dist/menu.js`, `dist/ipcHandlers.js`)**: Added 28 `v2.35.0` menu mappings (`Resolve`, `Return to Inbox`, `Inbox Mode`, `Working Section`, `Auto-Resolve`, `Subtitle`, `Move to Project/Workspace`, `Remove from Project/Workspace`, `Continue as a New Conversation` / workspace targets, `Open with` viewers, `Application Menu`, `For Me` / `For My Team`) plus dynamic `(Not running)` / `(Sidecar disabled)` suffix handling in `translateContextLabel`.
+
+### 2. Full Web UI v2.35.0 Localization & Anti-Chinglish Refinements (+181 Zero-Duplicate Keys, +31 `$`-Safe Dynamic Rules)
+- **Inbox Mode & Sidebar Controls (`Inbox Mode`, `Auto-Resolve`, `Working Section`)**: Localized Inbox mode switch, Working section grouping, Auto-Resolve interval tooltips, `Resolve` / `Return to Inbox` actions & `Resolved "<title>"` toasts, `All caught up`, `Subtitle`, status-grouping sort lock, and Auto Pin tooltip.
+- **Plugin Permissions Settings (`Plugin permissions`)**: Covered `Allowed by you`, `Included with plugin`, non-revocable notices, project-scoped `Allowed in <project>`, single/bulk revoke modals (`Revoke:`, `Revoke all:`, `All N will be revoked...`), plugin command previews, and MCP sign-in errors.
+- **Voice Dictation Language Picker (`Dictation languages`)**: Covered priority-order guidance, `Reset to auto`, `Auto-detect (browser defaults)`, search input placeholder, multi-select/reorder hint, `#1 Primary` badge, 28 language display names (keeping native subtitles non-duplicated), and no-match search messages.
+- **Side Question Promotion, Move Conversation & `Open with` Viewers**: Localized Side Question promotion to new conversation across current/shared/new workspaces and disabled guards, Move/Remove conversation dialogs (eliminating `Remove from Project` composite fallback), remote/local clone menus, built-in file viewers (`Text/Image/HTML/Notebook/PDF viewer`, `Video/Audio player`, `System default app`), and `Application Menu`.
+- **Remote Agents & Orchestrator Model Selection**: Localized `For Me` / `For My Team` creation menu, `Provisioning` / `Updating` / `Stalled` / `No longer active` states, identity search, `N waiting on you`, and `Orchestrator` default/custom model routing descriptions (preserving `Orchestrator`, `Swarm`, model names, and Thinking chains in native English).
+- **Refreshed Onboarding, Authorization Code & WIF SSO**: Localized updated capability headers, persona prompt, Google Cloud Project Details form, authorization-code sign-in & rejection messages, WIF Config panel, `Last Used` badge, and account ineligibility / verification headers.
+- **Permissions, MCP Elicitation Validation, Queue/Pagination, Google Drive & CEL Triggers**: Fixed `Yes, always allow in this project` mixed-language leak (`是，在此项目中始终允许`), added permission decision/admin escalation & `Wants to run:` rules, full `$`-safe MCP form validation messages (`Minimum/Maximum length/value`, `Select at least/most`, `Input must match`), queued-message & newer-message pagination notices, Google Drive title failure toasts, and Automation CEL `Self-watch` diagnostics.
+
+### 3. Community PR Integrations & Issue Fixes (PR #74 / PR #76 / PR #77 / PR #79 / Issue #73)
+- **Complete Path & URL Permission Title Family Fix (Merged PR #74 by `@angel12538`)**: Merged `Allow read/write access to this path?` and unified all 9 upstream `Hzc` actions in `src/dom-translator.js` (`read/write access to this path`, `reading this URL`, `executing actions on this URL`, `browser downloads from this site`, etc.), eliminating mixed-language output across all 18 `Allow ...?` and `Save rule to always allow ...?` combinations.
+- **Version-Match Guardrails & macOS Signing Guidance (Merged PR #76 by `@UncleLiu-0306`)**: Hardened README and release-notes installation guidance with strict exact-version verification, original `app.asar.bak` backup requirements, prominent macOS signature-invalidation warnings & official installer recovery steps, while retaining the optional `xattr -cr` / `codesign` local troubleshooting command with explicit risk notices.
+- **Complete AI Credits Exhaustion, Baseline Quota & Overage Notice Family (Merged PR #77 by `@angel12538`)**: Extended the notice matcher against upstream `v2.35.0` source to cover all combinations of `at least N` / `more` AI Credits, `this model` fallback, localized period-containing timestamps (e.g., `Nov. 25, 2026, 2:30 p.m.`), `Your plan's baseline quota will refresh on ...`, `enable AI Credit overages.`, and the sibling `Your quota for <model> will reset on / has been reached. Switch to another available model to continue.` notices.
+- **Hydrogen Quota Tooltip & Hardened Model Deprecation Date Rules (Merged PR #79 by `@angel12538`)**: Added `Use Hydrogen for better quality with lower quota usage.` and hardened `leaving on` with strict English month/day validation (`parseEnglishDateCn` supporting `Sept`, `Nov.`, and ordinals) plus model-subject constraints to eliminate false positives on ordinary English sentences (`John is leaving on vacation.`, `Leaving on Monday`), while also tightening `will be removed on` so it never crosses sentence boundaries.
+- **Fixed Zero-Node Batch Window Auto-Close & Added Offline Safe Restore to English (Issue #73 by `@yeli008`)**: Fixed `一键更新汉化.bat` exiting immediately without pausing at `:LEGACY_ALREADY_LOCALIZED` when already localized without Node.js; offline mode now explains that the web dashboard requires Node.js and lets users press `R` to safely restore the official English build offline with version-matching, non-polluted backup checks, and SHA-256 atomic replacement.
+
+### 4. End-to-End Verification & Gate
+- Zero-duplicate dictionary expanded to **`4,837` entries**; added `tests/ticket-56-v2350-features.test.js` (covering PR #77/#79 full-family & anti-false-positive regressions plus real Windows `cmd.exe` offline restore success, cross-version stale-backup block, and polluted-backup block tests) and updated `Ticket-44` / `Ticket-48` to validate legacy HUD backward compatibility via isolated temporary fixtures when `extracted/dist/computer/hud*.js` is absent on `v2.35.0+`; **63/63 TDD test suites 100% ALL GREEN**.
+
+---
+
+## v2.34.0.1 (2026-11-23) — Swarm & `plugin://` Subframe Localization, Scoped Sidebar Project Protection, High-Frequency UI & Native Context Menu Upgrades
+
+### 1. Swarm Multi-Agent Panel & `plugin://` Subframe Hook (Ticket-53)
+- **`plugin://` Subframe DOM Injection Hook (`dist/utils.js`)**: Attaches a `did-frame-finish-load` listener on `hubContents` strictly scoped to `/^plugin:\/\//i` subframes (reusing the cached DOM engine slice from `preload.js` with a `window.__agyDomTranslatorInitialized` idempotency guard and window-close cleanup).
+- **Swarm Chrome Coverage & Dynamic Content Isolation**: Keeps the `Swarm` brand name in native English (consistent with `Orchestrator`), adds **+131** dictionary entries and **+30** dynamic templates (`Overview`, `Board`, `Members`, `Graph`, `Raw`, `Hive`, `Mentions`, `Live`, `Coordinator`, progress/playback/GIF export), keeps leading digits intact for `hive.js` slider replacement, and isolates AI post bodies, task titles, and `@mention`/member badges.
+- **Cross-Platform CRLF Patching (`localize.js`)**: Added CRLF/LF auto-adaptation to `replaceInFile` and atomic pre-check gating for the `utils.js` hook.
+
+### 2. Community PR Integrations & Source-Level Refinements (PR #69 / #70 / #71)
+- **Home Suggestions, Shortcuts & Input Accessibility (PR #69 by `@12cjn`, Ticket-51)**: Localized home suggestions, shortcut labels, and composer accessibility labels, alongside composer container penetration, O(1) draft pruning, and shortcut regex boundary fixes.
+- **Scoped Sidebar Project Name Protection (PR #70 by `@omsd512-W`, Ticket-52)**: Protects real user project cards and custom conversation groups (`convgroup:*`) from accidental translation, while allowing built-in system group headers reusing `project-header` (`status-*`, `location-*`, `standalone`, `Unknown Project`) to translate normally.
+- **v2.34.0 High-Frequency UI Gaps & Credentials/Site-Data Rules (PR #71 by `@dsasanim4-source`, Ticket-54)**: Added **+61** high-frequency UI entries across loading states, Voice sign-in, mic permissions, cloud setup, remote update guides, feedback lists, and browser tools; extended `JXb` cloud-credential dynamic matching to handle multi-sentence `.join(" ")` output and corrected "domains listed" directionality; added `Site data cleared for` and React 3-TextNode in-place stitching preserving the middle `host` node reference.
+
+### 3. Preview Pane Native Context Menus, Send Shortcut Tooltips & Cloud Disclosure Modal (Ticket-55)
+- **Full Native Context Menu Audit (`dist/ipcHandlers.js`, `dist/menu.js`)**: Added `Copy File Path`, `Copy File Name`, `Copy Content`, `Hide`, `Reply`, `Manual Order`, `Send Message`, `Queue Message`, `Send Immediately`, and top-bar `Add to Chat`.
+- **Send Button Shortcut Tooltips**: Added dynamic rules covering `Send Message` / `Queue Message` / `Send Immediately` with `Enter`, `Ctrl+Enter`, `⏎`, `⌘⏎`, `(Alt+Enter)`, and `(⌥⏎)`.
+- **Cloud Workspace Files & Resources Modal**: Localized the modal subtitle, inline banner, project/workspace settings subtitle, and the 4-link disclaimer paragraph via in-place anchor stitching preserving all four `<a>` hyperlinks.
+
+### 4. End-to-End Verification & Gate
+- Zero-duplicate dictionary expanded to **`4,653` entries**; slim `app.asar.ready` at `7,838,954` bytes (`7.48 MiB`, base client version strictly pinned to `2.34.0`); **62/62 TDD test suites 100% ALL GREEN**.
+
+---
+
+## v2.34.0 (2026-11-21) — Full Official v2.34.0 Support: Input Box Shortcuts, Orchestrator Settings & Thinking Effort, Inline Approval/Question Cards, Sidebar Filter & Sort, and Computer Use HUD Upgrade
+
+### 1. Official v2.34.0 Main-Process Patch Alignment & Compatibility
+- **Updater State Machine Update (`dist/updater.js`)**: Adapted to upstream `v2.34.0` adding `void` in `() => void quitAndInstall()`, with backward fallback for existing test mocks, achieving `0` skipped patches in `applyTranslations`.
+- **Computer Use HUD & Takeover Banner Upgrade (`dist/computer/hud.js`, `hudState.js`)**: Updated the resume button and tooltip (`Allow again` ➔ `重新允许`) plus `hudView` pause-cause distinction (`user_takeover` ➔ `您已接管 — 智能体已停止` vs `智能体已停止`), preserving all `agy-hud:` IPC tokens and v2.33.0 fallback compatibility.
+- **Synced New Upstream Modules & Slim `app.asar.ready`**: Synced upstream `v2.34.0` files including `dist/authBootstrap.js`, `dist/browserStream/*` (7 modules), `dist/computer/screenLock.js`, and `dist/proto/browser_viewer_pb.js` while leaving protocol/internal strings untouched; rebuilt slim `app.asar.ready` (`7,756,964` bytes / `7.40 MiB`, version `2.34.0`).
+
+### 2. Complete Web UI Delta Coverage, PR #67 & Issue #68 Resolution (+150 Dictionary Keys, +40 Dynamic Rules)
+- **Input Box & Immediate Sending (`Input Box` & `Send message`)**: Localized `Cmd+Enter` / `Ctrl+Enter` / `Enter` composer shortcuts, immediate-sending inline notice (`Messages now send immediately. Configure in` / `Instead of queueing...`), `Cmd+click to open` / `Ctrl+click to open`, and lowercase `Sync JJ worktrees to head`.
+- **Orchestrator Settings, Thinking Effort & `Extra High` Fix**: Kept the `Orchestrator` mode name in native English (`Orchestrator 设置` / `Orchestrator 模型`), localized `Thinking effort` & `ELMO Composite`, and explicitly mapped `Extra High` ➔ `极高` (preventing composite word fallback from producing `"极高高"`).
+- **Inline Question & Runtime/Command Permission Cards (Issue #68)**: Localized `Skip`, `Skipped`, `Add note`, `Resolved in chat`, `Replaced by newer request`, `Expired · Action not taken`, `Ask to retry`, `Yes, allow this time` / `Yes, allow this download` / `Yes, save rule ...` / `Yes, and always allow ...` static/dynamic option families, `No (tell the agent what to do instead)`, `Allow <action/command>?`, `Recursively deleting the pre-existing directory ...`, `Runtime permission`, and `Deny with note`.
+- **Customize Sidebar, Filter & Sort, and Archive Toast v2.34.0**: Added `Customize Sidebar` options, `Filter and Sort` menu, `Pin Entire Workspace/Project`, and `(![tune](icon://tune) Customize Sidebar).` archive toast split handling.
+- **Computer Use Screen Lock, Preview & macOS Permission Guide**: Localized `Screen locked: agents can't use this Mac until you unlock it`, `Connecting to the live preview…`, `Live preview unavailable · ...`, `N agent(s) working, live preview unavailable`, and macOS permission walkthrough fragments.
+- **Skills, Swarm Card, Outside-Project Settings & Shortcut Recording (PR #67)**: Added 7 built-in skill descriptions, `Unlock the power of agent swarms.`, `Recording shortcut for ...`, and `Settings / Agent settings for conversations outside of ...` variants.
+- **Account Telemetry, Pagination, UI Plugins, Schedules & Keybinding Conflicts**: Added telemetry opt-out paragraph matching, older-message pagination strings, `UI Plugin (SidePanel)` / `Start Plugin`, `Weekdays` / `Weekly`, `Open image X of Y`, `Show N More`, `(experimental)`, `Line X → Y`, task countdowns, and `reserved for sidebar switching` chord conflict hints.
+
+### 3. End-to-End Verification & Test Gate
+- Zero-duplicate dictionary expanded to **`4,444` entries**, added `tests/ticket-48-v2340-features.test.js`, `tests/ticket-49-v2340-remaining-gaps.test.js`, and `tests/ticket-50-issue68-and-tier-fixes.test.js`, and verified **57/57 TDD test suites 100% ALL GREEN**.
+
+---
+
 ## v2.33.0 (2026-11-18) — Full Official v2.33.0 Support: Computer Use & Agents Live Preview, Remote SSH Lifecycle Upgrade, 9 New Voices & Dictation, Marketplace Bundles & Modular Hardening
 
 ### 1. Comprehensive Localization for Official v2.33.0 Features

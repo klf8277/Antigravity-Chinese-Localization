@@ -100,7 +100,7 @@ class PreviewManager {
         this.agents = new Map();
         /** The actuator is paused (a takeover, or Stop until the lease ends). */
         this.paused = false;
-        /** The user pressed Stop (HUD / viewer Stop all): nothing streams. */
+        /** The user pressed Stop (viewer Stop all): nothing streams. */
         this.userStopped = false;
         this.stopped = false;
         /** The helper rejected preview_user_control (an older helper). */
@@ -685,10 +685,13 @@ class PreviewManager {
             if (s.state !== state) {
                 s.state = state;
                 if (state === 'redacted') {
+                    // The helper names a verdict the tick saw (screen_locked) when no
+                    // frame may follow (SCK stopped the stream).
                     s.redactReason =
-                        (this.holdLeft.get(s.streamId) ?? 0) > 0
-                            ? protocol_1.REDACT_STARTING
-                            : (s.redactReason ?? protocol_1.REDACT_POLICY);
+                        (0, frames_1.redactReasonOf)(m['reason']) ??
+                            ((this.holdLeft.get(s.streamId) ?? 0) > 0
+                                ? protocol_1.REDACT_STARTING
+                                : (s.redactReason ?? protocol_1.REDACT_POLICY));
                 }
                 else {
                     delete s.redactReason;

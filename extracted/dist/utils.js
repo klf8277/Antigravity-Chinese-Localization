@@ -40,9 +40,15 @@ exports.SleepBlocker = exports.showOrCreateWindow = exports.CATCHER_STABLE_LOAD_
 exports.setShowQuitConfirmation = setShowQuitConfirmation;
 exports.isMacOS = isMacOS;
 exports.isLightTheme = isLightTheme;
+exports.hasAdaptiveBundleIcon = hasAdaptiveBundleIcon;
 exports.startInactive = startInactive;
 exports.onHubWindowFocusChange = onHubWindowFocusChange;
+exports.hasCustomWindowControls = hasCustomWindowControls;
+exports.isHubWindowBootstrapping = isHubWindowBootstrapping;
+exports.resolveCurrentHubUrl = resolveCurrentHubUrl;
+exports.loadHubWindowUrl = loadHubWindowUrl;
 exports.isWcvThreeLayerStackEnabled = isWcvThreeLayerStackEnabled;
+exports.isRemoteControlBrowserStreamEnabled = isRemoteControlBrowserStreamEnabled;
 exports.normalizeHexSurfaceColor = normalizeHexSurfaceColor;
 exports.buildHubCurtainDataUrl = buildHubCurtainDataUrl;
 exports.markWebviewPopupWindow = markWebviewPopupWindow;
@@ -69,6 +75,8 @@ exports.setupNodeWrapper = setupNodeWrapper;
 const electron_1 = require("electron");
 const constants_1 = require("./constants");
 Object.defineProperty(exports, "WCV_THREE_LAYER_STACK_FLAG", { enumerable: true, get: function () { return constants_1.WCV_THREE_LAYER_STACK_FLAG; } });
+const mendelFlagSync_1 = require("./mendelFlagSync");
+const authBootstrap_1 = require("./authBootstrap");
 const externalUrl_1 = require("./externalUrl");
 const keybindings_1 = require("./keybindings");
 const path_1 = __importDefault(require("path"));
@@ -81,7 +89,9 @@ const previewViewers_1 = require("./computer/previewViewers");
 const hubWindows_1 = require("./hubWindows");
 const windowState_1 = require("./windowState");
 const windowBackends_1 = require("./remote/windowBackends");
+const customWindowControls_1 = require("./customWindowControls");
 const nodeWrapper_1 = require("./nodeWrapper");
+const captureWindow_1 = require("./browserStream/captureWindow");
 exports.showQuitConfirmation = false;
 function setShowQuitConfirmation(value) {
     exports.showQuitConfirmation = value;
@@ -125,10 +135,33 @@ function isLightTheme() {
  */
 function ensureAppIsInDock() {
     void electron_1.app.dock?.show();
-    if (isMacOS() && electron_1.app.dock) {
-        const iconPath = path_1.default.join(__dirname, '..', 'icon.png');
-        electron_1.app.dock.setIcon(electron_1.nativeImage.createFromPath(iconPath));
+    if (isMacOS()) {
+        setStaticDockIcon();
     }
+}
+/**
+ * Whether this is a packaged build whose bundle ships a compiled asset catalog
+ * icon (`Contents/Resources/Assets.car` + `CFBundleIconName`, added by
+ * `scripts/sign_mac.sh`). macOS then draws the adaptive
+ * Dark/Clear/Tinted Dock icon itself, and `app.dock.setIcon()` must not
+ * replace it with the static `icon.png`.
+ */
+function hasAdaptiveBundleIcon(packaged = electron_1.app.isPackaged, resourcesPath = process.resourcesPath, exists = fs.existsSync) {
+    return (packaged &&
+        Boolean(resourcesPath) &&
+        exists(path_1.default.join(resourcesPath, 'Assets.car')));
+}
+/**
+ * Sets the static `icon.png` Dock icon (dev runs, and packaged builds that
+ * only have the legacy `icon.icns`). Skipped when the bundle has an adaptive
+ * icon, since a custom Dock image stays white in dark mode.
+ */
+function setStaticDockIcon() {
+    if (!electron_1.app.dock || hasAdaptiveBundleIcon()) {
+        return;
+    }
+    const iconPath = path_1.default.join(__dirname, '..', 'icon.png');
+    electron_1.app.dock.setIcon(electron_1.nativeImage.createFromPath(iconPath));
 }
 /**
  * The inactive start's Dock entry: the regular activation policy gives the
@@ -141,10 +174,7 @@ function ensureAppIsInDockInactive() {
         return;
     }
     electron_1.app.setActivationPolicy('regular');
-    if (electron_1.app.dock) {
-        const iconPath = path_1.default.join(__dirname, '..', 'icon.png');
-        electron_1.app.dock.setIcon(electron_1.nativeImage.createFromPath(iconPath));
-    }
+    setStaticDockIcon();
 }
 // ---------------------------------------------------------------------------
 // Window Management
@@ -189,7 +219,6 @@ exports.WCV_THREE_LAYER_STACK_ARG = '--agy-wcv-three-layer-stack=1';
 exports.CATCHER_DATA_URL = 'data:text/html,<!doctype html><html style="margin:0;width:100%;height:100%;overflow:hidden;background:transparent;user-select:none"><body style="margin:0;width:100%;height:100%;overflow:hidden;background:transparent;user-select:none"></body></html>';
 exports.CATCHER_CRASH_BACKOFF_MS = [100, 500, 2000];
 exports.CATCHER_STABLE_LOAD_RESET_MS = 5000;
-const CUSTOM_FLAG_OVERRIDES_STORAGE_KEY = 'jetski.developer.customFlagOverrides';
 const HEX_COLOR_6_RE = /^#[0-9a-fA-F]{6}$/;
 const hubWindows = new WeakSet();
 const hubViewByWindow = new WeakMap();
@@ -199,10 +228,145 @@ const hubCurtainViewByWindow = new WeakMap();
 const hubCurtainColorByWindow = new WeakMap();
 const hubCurtainStateByWindow = new WeakMap();
 const hubSurfaceTransparentByWindow = new WeakMap();
+/** Windows created without the native caption-button overlay. */
+const customWindowControlsWindows = new WeakSet();
+/**
+ * Whether `win` was created for page-drawn window buttons, so it has no
+ * native caption-button overlay (decided once, at creation: see createWindow).
+ */
+function hasCustomWindowControls(win) {
+    return Boolean(win && typeof win === 'object' && customWindowControlsWindows.has(win));
+}
 const windowByWebContents = new WeakMap();
 const windowByWebContentsId = new Map();
 const windowByCatcherWebContents = new WeakMap();
 const windowByCatcherWebContentsId = new Map();
+const bootstrappingWindows = new WeakSet();
+const expectedOriginByWindow = new WeakMap();
+const navigationSeqByWindow = new WeakMap();
+/** Returns `true` while `loadHubWindowUrl` is awaiting a fresh bootstrap token before `win.loadURL(...)`. */
+function isHubWindowBootstrapping(win) {
+    return Boolean(win && typeof win === 'object' && bootstrappingWindows.has(win));
+}
+function resolveActiveLsBaseUrl() {
+    if (typeof authBootstrap_1.getActiveLsBaseUrl === 'function') {
+        const base = (0, authBootstrap_1.getActiveLsBaseUrl)();
+        if (base) {
+            return base;
+        }
+    }
+    if (typeof authBootstrap_1.getActiveLsPort === 'function') {
+        const port = (0, authBootstrap_1.getActiveLsPort)();
+        if (typeof port === 'number' && port > 0) {
+            return `${constants_1.WINDOW_ORIGIN}:${port}`;
+        }
+    }
+    return undefined;
+}
+/**
+ * Rebases `targetUrl` onto the active Language Server port when `DEV_URL` is
+ * unset and `targetUrl` targets the Hub loopback origin (`WINDOW_ORIGIN`), so
+ * New Window actions after an LS restart never point at a stale port.
+ */
+function resolveCurrentHubUrl(targetUrl) {
+    if (process.env.DEV_URL) {
+        return targetUrl;
+    }
+    const lsBaseUrl = resolveActiveLsBaseUrl();
+    if (!lsBaseUrl) {
+        return targetUrl;
+    }
+    try {
+        const parsedTarget = new URL(targetUrl);
+        const parsedLs = new URL(lsBaseUrl);
+        if (parsedTarget.protocol === parsedLs.protocol &&
+            (0, authBootstrap_1.isLoopbackHostname)(parsedTarget.hostname) &&
+            (0, authBootstrap_1.isLoopbackHostname)(parsedLs.hostname)) {
+            const rebased = new URL(parsedLs.toString());
+            rebased.pathname = parsedTarget.pathname;
+            rebased.search = parsedTarget.search;
+            rebased.hash = parsedTarget.hash;
+            return rebased.toString();
+        }
+    }
+    catch {
+        // Keep targetUrl unchanged when unparsable.
+    }
+    return targetUrl;
+}
+async function invokeWindowLoadUrl(win, url) {
+    try {
+        await win.loadURL(url);
+    }
+    catch (err) {
+        const errObj = err;
+        if (errObj?.code === 'ERR_ABORTED' ||
+            errObj?.errno === -3 ||
+            win.isDestroyed?.() ||
+            getHubWebContents(win)?.isDestroyed?.()) {
+            return;
+        }
+        console.warn(`[HubWindow] loadURL failed for ${(0, authBootstrap_1.redactUrlTokens)(url)}: ${err?.message ?? String(err)}`);
+    }
+}
+/**
+ * Navigates `win` to `targetUrl`. When `DEV_URL` is unset, `skipBootstrapMint`
+ * is false, and `targetUrl` matches the active local Language Server's origin,
+ * mints a fresh single-use `#t=<bootstrapToken>` via `POST /auth/mint` right
+ * before `win.loadURL(...)` and logs only the token-redacted URL.
+ */
+async function loadHubWindowUrl(win, targetUrl, options) {
+    const navSeq = (navigationSeqByWindow.get(win) ?? 0) + 1;
+    navigationSeqByWindow.set(win, navSeq);
+    const lsBaseUrl = !options?.skipBootstrapMint && !process.env.DEV_URL
+        ? resolveActiveLsBaseUrl()
+        : undefined;
+    const shouldMint = Boolean(lsBaseUrl && (0, externalUrl_1.isSameOrigin)(targetUrl, lsBaseUrl));
+    if (!shouldMint) {
+        bootstrappingWindows.delete(win);
+        try {
+            const origin = new URL(targetUrl).origin;
+            if (origin !== 'null') {
+                expectedOriginByWindow.set(win, origin);
+            }
+        }
+        catch {
+            // Ignore non-standard URLs.
+        }
+        await invokeWindowLoadUrl(win, targetUrl);
+        return;
+    }
+    bootstrappingWindows.add(win);
+    try {
+        const token = typeof authBootstrap_1.mintActiveLsBootstrapToken === 'function'
+            ? await (0, authBootstrap_1.mintActiveLsBootstrapToken)()
+            : undefined;
+        if (navigationSeqByWindow.get(win) !== navSeq) {
+            return;
+        }
+        const hubContents = getHubWebContents(win);
+        if (win.isDestroyed?.() || hubContents?.isDestroyed?.()) {
+            return;
+        }
+        const finalUrl = (0, authBootstrap_1.withBootstrapTokenFragment)(targetUrl, token);
+        try {
+            const origin = new URL(finalUrl).origin;
+            if (origin !== 'null') {
+                expectedOriginByWindow.set(win, origin);
+            }
+        }
+        catch {
+            // Ignore
+        }
+        console.log(`[AuthBootstrap] Loading Hub window URL: ${(0, authBootstrap_1.redactUrlTokens)(finalUrl)}`);
+        await invokeWindowLoadUrl(win, finalUrl);
+    }
+    finally {
+        if (navigationSeqByWindow.get(win) === navSeq) {
+            bootstrappingWindows.delete(win);
+        }
+    }
+}
 function isCatcherWebContents(candidate) {
     return Boolean(candidate &&
         typeof candidate === 'object' &&
@@ -242,7 +406,7 @@ function isWcvThreeLayerStackEnabled(storageManager) {
     else {
         items = readAppStorageSync();
     }
-    const rawOverrides = items[CUSTOM_FLAG_OVERRIDES_STORAGE_KEY];
+    const rawOverrides = items[constants_1.CUSTOM_FLAG_OVERRIDES_STORAGE_KEY];
     if (typeof rawOverrides === 'string') {
         try {
             const val = asRecord(JSON.parse(rawOverrides))?.[constants_1.WCV_THREE_LAYER_STACK_FLAG];
@@ -256,6 +420,22 @@ function isWcvThreeLayerStackEnabled(storageManager) {
     }
     const saved = items[constants_1.WCV_THREE_LAYER_STACK_FLAG];
     return saved === true || saved === 'true';
+}
+/** Evaluates whether the Remote Control browser stream actuator is enabled, with boolean `customFlagOverrides` precedence. */
+function isRemoteControlBrowserStreamEnabled(storageManager, env = process.env, packaged = Boolean(electron_1.app.isPackaged)) {
+    let items = {};
+    if (typeof storageManager?.getItemsSync === 'function') {
+        try {
+            items = asRecord(storageManager.getItemsSync()) ?? {};
+        }
+        catch {
+            // Fall back to empty items on storage read error.
+        }
+    }
+    else {
+        items = readAppStorageSync();
+    }
+    return (0, mendelFlagSync_1.evaluateRemoteControlBrowserStreamEnabled)(items, env, packaged);
 }
 /** Validates a 6-digit `#RRGGBB` hex color string and returns it normalized to uppercase. */
 function normalizeHexSurfaceColor(color) {
@@ -330,15 +510,15 @@ function getHubCurtainColor(win) {
     }
     return getThemeMode().toUpperCase().includes('LIGHT') ? '#FAFAFA' : '#131313';
 }
-/** Updates a Hub window's `baseWin` (and opaque `curtainView` document when present) to `color` (`#RRGGBB`); no-ops for non-Hub or closed windows. */
+/** Updates a Hub window's `baseWin`, `clipView`, and opaque `curtainView` document (when present) to `color` (`#RRGGBB`); no-ops for non-Hub or closed windows. */
 function setHubCurtainColor(win, color) {
     const normalized = normalizeHexSurfaceColor(color);
     if (!normalized || !win || typeof win !== 'object') {
         return undefined;
     }
     const curtain = hubCurtainViewByWindow.get(win);
-    const hasClipView = hubClipViewByWindow.has(win);
-    if (!curtain && !hasClipView) {
+    const clipView = hubClipViewByWindow.get(win);
+    if (!curtain && !clipView) {
         return undefined;
     }
     const w = win;
@@ -348,6 +528,7 @@ function setHubCurtainColor(win, color) {
     hubCurtainColorByWindow.set(win, normalized);
     if (!w.isDestroyed?.()) {
         w.setBackgroundColor?.(normalized);
+        clipView?.setBackgroundColor?.(normalized);
     }
     if (hubSurfaceTransparentByWindow.get(win) === false) {
         const hubView = hubViewByWindow.get(win);
@@ -510,7 +691,7 @@ function getHubWindows() {
             continue;
         }
         seen.add(win);
-        // Aux windows (the desktop HUD) are never Hub windows.
+        // Aux windows (e.g. the browser capture window) are never Hub windows.
         if ((0, hubWindows_1.isAuxWindow)(win)) {
             continue;
         }
@@ -600,7 +781,26 @@ function createWindow(url, storageManager, options) {
         : '';
     const badge = options?.titleSuffix ?? wslBadge;
     const builtInBrowser = options?.builtInBrowser ?? true;
-    const additionalArguments = options?.additionalArguments ?? [];
+    // Experimental: the page draws the window buttons, so no native overlay.
+    // The frame stays (titleBarStyle 'hidden', resizable) so Windows snapping,
+    // double-click-to-maximize and edge resizing still work.
+    //
+    // Never in SSH windows (for now): their page comes from the remote language
+    // server, which can be older than this app and lack the toolkit's
+    // WindowControls (cl/1024370653). remoteManager keeps an older server while
+    // it has conversations or terminals, after a failed replace, and never
+    // replaces a newer one. Electron can't add the native overlay back after
+    // the window is created, so an old page would leave the window with no
+    // buttons at all. Local and WSL windows are safe: their server is this
+    // app's version. TODO: allow SSH (drop `!isSshWindow`) about a month after
+    // cl/1024370653 reaches Insiders.
+    // The same signal the preload reads to tell an SSH window (isRemoteWindow).
+    const isSshWindow = (options?.additionalArguments ?? []).includes('--agy-backend=ssh');
+    const customWindowControls = (0, customWindowControls_1.isCustomWindowControlsEnabled)() && !isSshWindow;
+    const additionalArguments = [
+        ...(options?.additionalArguments ?? []),
+        ...(customWindowControls ? [customWindowControls_1.CUSTOM_WINDOW_CONTROLS_ARG] : []),
+    ];
     const windowOptions = {
         ...(initialWindowState.x !== undefined && initialWindowState.y !== undefined
             ? { x: initialWindowState.x, y: initialWindowState.y }
@@ -614,12 +814,12 @@ function createWindow(url, storageManager, options) {
         title: electron_1.app.getName() + badge,
         icon: path_1.default.join(__dirname, '..', 'icon.png'),
         titleBarStyle: 'hidden',
-        titleBarOverlay: isMacOS()
+        titleBarOverlay: isMacOS() || customWindowControls
             ? false
             : {
                 color: backgroundColor,
                 symbolColor: foregroundColor,
-                height: 30,
+                height: windowState_1.DEFAULT_TITLE_BAR_OVERLAY_HEIGHT,
             },
         backgroundColor,
         ...(inactive ? { show: false } : {}),
@@ -639,6 +839,7 @@ function createWindow(url, storageManager, options) {
     };
     let win;
     let syncHubViewBounds;
+    let windowContentView;
     let onCurtainProcessGone;
     let clipView;
     let cleanupCatcher;
@@ -651,6 +852,7 @@ function createWindow(url, storageManager, options) {
             backgroundColor: curtainColor,
         });
         clipView = threeLayer ? new electron_1.View() : undefined;
+        clipView?.setBackgroundColor?.(curtainColor);
         clipView?.setBounds?.({ x: 0, y: 0, width: 1280, height: 800 });
         clipView?.setVisible?.(false);
         // Load a minimal static HTML document into `curtainView` (`javascript: false`):
@@ -720,12 +922,20 @@ function createWindow(url, storageManager, options) {
         syncHubViewBounds = () => {
             if (!baseWin.isDestroyed?.() && !hubWcv.webContents?.isDestroyed?.()) {
                 const [width, height] = baseWin.getContentSize();
+                // Windows reads 0x0 while minimized; restoring fires bounds-changed.
+                if (width === 0 || height === 0) {
+                    return;
+                }
                 curtainView?.setBounds({ x: 0, y: 0, width, height });
                 hubWcv.setBounds({ x: 0, y: 0, width, height });
             }
         };
         syncHubViewBounds();
         baseWin.on('resize', syncHubViewBounds);
+        // On Linux, when a resize also moves the window, 'resize' fires before the
+        // content view has its final size.
+        windowContentView = baseWin.contentView;
+        windowContentView.on('bounds-changed', syncHubViewBounds);
         win = baseWin;
         Object.defineProperty(win, 'webContents', {
             get: () => hubWcv.webContents,
@@ -954,10 +1164,14 @@ function createWindow(url, storageManager, options) {
         throw new Error('Failed to initialize Hub WebContents');
     }
     hubWindows.add(win);
+    if (customWindowControls) {
+        customWindowControlsWindows.add(win);
+    }
     win.on('focus', () => lastFocusOf.set(win, ++focusCount));
     registerWindowWebContents(win, hubContents);
     win.on('focus', notifyHubFocusChange);
     win.on('blur', notifyHubFocusChange);
+    (0, customWindowControls_1.forwardMaximizedState)(win, () => getHubWebContents(win));
     // `BaseWindow` does not mirror the Hub page title, so set it explicitly.
     // Truncation keeps the menu dropdown from being very wide.
     const handleTitleUpdate = (_event, title) => {
@@ -998,8 +1212,81 @@ function createWindow(url, storageManager, options) {
         if (allowsNavigation(event.url)) {
             return;
         }
+        if (!options?.navigationPolicy) {
+            if (!process.env.DEV_URL) {
+                const activeLsBaseUrl = resolveActiveLsBaseUrl();
+                if (activeLsBaseUrl !== undefined &&
+                    (0, externalUrl_1.isSameOrigin)(event.url, activeLsBaseUrl)) {
+                    return;
+                }
+            }
+            const expectedOrigin = expectedOriginByWindow.get(win);
+            if (expectedOrigin !== undefined &&
+                !hubContents.getURL() &&
+                (0, externalUrl_1.isSameOrigin)(event.url, expectedOrigin)) {
+                return;
+            }
+        }
         event.preventDefault();
         openOutside(event.url);
+    };
+    const handleDidFailLoad = (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        // Ignore subframes and benign aborted navigations (ERR_ABORTED = -3).
+        if (!isMainFrame || errorCode === -3) {
+            return;
+        }
+        console.warn(`[HubWindow] Main-frame load failed (${errorCode} ${errorDescription}): ${(0, authBootstrap_1.redactUrlTokens)(validatedURL)}`);
+    };
+    // Antigravity 2.0 Plugin Subframe DOM Localization Hook (Swarm & plugin:// sidecars)
+    const getPluginDomI18nSource = () => {
+        if (typeof globalThis.__agyCachedPluginDomI18nSource === 'string') {
+            return globalThis.__agyCachedPluginDomI18nSource;
+        }
+        try {
+            const raw = fs.readFileSync(path_1.default.join(__dirname, 'preload.js'), 'utf-8');
+            const marker = '// Antigravity 2.0 Chinese Localization Engine';
+            const idx = raw.indexOf(marker);
+            globalThis.__agyCachedPluginDomI18nSource = idx !== -1 ? raw.slice(idx) : '';
+        }
+        catch {
+            globalThis.__agyCachedPluginDomI18nSource = '';
+        }
+        return globalThis.__agyCachedPluginDomI18nSource;
+    };
+    const injectPluginFrameLocalization = (frame) => {
+        if (!frame || frame.isDestroyed?.()) {
+            return;
+        }
+        const frameUrl = typeof frame.url === 'string' ? frame.url : '';
+        if (!/^plugin:\/\//i.test(frameUrl)) {
+            return;
+        }
+        const source = getPluginDomI18nSource();
+        if (!source || typeof frame.executeJavaScript !== 'function') {
+            return;
+        }
+        void Promise.resolve(frame.executeJavaScript(source, false)).catch(() => undefined);
+    };
+    const handlePluginSubframeLoad = (_event, isMainFrame, frameProcessId, frameRoutingId) => {
+        if (isMainFrame) {
+            return;
+        }
+        let targetFrame;
+        if (typeof frameProcessId === 'number' &&
+            typeof frameRoutingId === 'number' &&
+            typeof electron_1.webFrameMain?.fromId === 'function') {
+            targetFrame = electron_1.webFrameMain.fromId(frameProcessId, frameRoutingId);
+        }
+        if (targetFrame) {
+            injectPluginFrameLocalization(targetFrame);
+            return;
+        }
+        const subframes = hubContents.mainFrame?.framesInSubtree ?? [];
+        for (const f of subframes) {
+            if (f && f !== hubContents.mainFrame) {
+                injectPluginFrameLocalization(f);
+            }
+        }
     };
     win.on('closed', () => {
         notifyHubFocusChange();
@@ -1010,10 +1297,16 @@ function createWindow(url, storageManager, options) {
         }
         if (syncHubViewBounds) {
             win.off?.('resize', syncHubViewBounds);
+            windowContentView?.off('bounds-changed', syncHubViewBounds);
         }
         hubContents.off?.('page-title-updated', handleTitleUpdate);
         hubContents.off?.('will-navigate', guardExternalNavigation);
         hubContents.off?.('will-redirect', guardExternalNavigation);
+        hubContents.off?.('did-fail-load', handleDidFailLoad);
+        hubContents.off?.('did-frame-finish-load', handlePluginSubframeLoad);
+        bootstrappingWindows.delete(win);
+        expectedOriginByWindow.delete(win);
+        navigationSeqByWindow.delete(win);
         hubViewByWindow.delete(win);
         if (clipView) {
             if (!win.isDestroyed?.()) {
@@ -1035,6 +1328,9 @@ function createWindow(url, storageManager, options) {
         if (!hubContents.isDestroyed?.()) {
             hubContents.close?.();
         }
+        if (getLocalHubWindows().every((w) => w === win)) {
+            (0, captureWindow_1.disposeCaptureWindow)();
+        }
     });
     hubContents.setWindowOpenHandler((details) => {
         openOutside(details.url);
@@ -1042,6 +1338,8 @@ function createWindow(url, storageManager, options) {
     });
     hubContents.on('will-navigate', guardExternalNavigation);
     hubContents.on('will-redirect', guardExternalNavigation);
+    hubContents.on('did-fail-load', handleDidFailLoad);
+    hubContents.on('did-frame-finish-load', handlePluginSubframeLoad);
     (0, loadingOverlay_1.attachLoadingOverlay)(win, foregroundColor, backgroundColor);
     (0, keybindings_1.registerKeybindings)(win, {
         createNewWindow: () => {
@@ -1049,7 +1347,15 @@ function createWindow(url, storageManager, options) {
                 options.onNewWindow();
                 return;
             }
-            void createWindow(url, storageManager, { cascade: true });
+            if (!process.env.DEV_URL &&
+                url.startsWith(`${constants_1.WINDOW_ORIGIN}:`) &&
+                typeof authBootstrap_1.getActiveLsPort === 'function' &&
+                (0, authBootstrap_1.getActiveLsPort)() <= 0) {
+                return;
+            }
+            void createWindow(resolveCurrentHubUrl(url), storageManager, {
+                cascade: true,
+            });
         },
         onQuitRequested: () => {
             exports.showQuitConfirmation = true;
@@ -1119,7 +1425,8 @@ function createWindow(url, storageManager, options) {
     }
     // The computer pane's loopback preview: this window's Hub UI only.
     (0, previewViewers_1.registerPreviewViewer)(hubContents);
-    void win.loadURL(url);
+    const skipBootstrapMint = Boolean(options?.partition || options?.navigationPolicy);
+    void loadHubWindowUrl(win, url, { skipBootstrapMint });
     return win;
 }
 /**
@@ -1134,7 +1441,10 @@ const showOrCreateWindow = (port) => {
         wins[0].show();
         wins[0].focus();
     }
-    else {
+    else if (process.env.DEV_URL) {
+        createWindow(process.env.DEV_URL);
+    }
+    else if (port > 0) {
         createWindow(`${constants_1.WINDOW_ORIGIN}:${port}/`);
     }
 };

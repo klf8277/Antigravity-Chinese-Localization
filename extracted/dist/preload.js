@@ -81,6 +81,11 @@ const agentAPI = {
 // Mirrors utils.ts's WCV_THREE_LAYER_STACK_ARG: a sandboxed preload can't
 // import it. Declared before `wcvBrowserAPI`, which reads it at load time.
 exports.WCV_THREE_LAYER_STACK_ARG = '--agy-wcv-three-layer-stack=1';
+// Repeats customWindowControls.ts (a sandboxed preload can't import it).
+const CUSTOM_WINDOW_CONTROLS_ARG = '--agy-custom-window-controls=1';
+const MAXIMIZED_CHANGED_CHANNEL = 'window:maximized-changed';
+const hasCustomWindowControls = Array.isArray(process.argv) &&
+    process.argv.includes(CUSTOM_WINDOW_CONTROLS_ARG);
 function subscribeIpcChannel(channel, callback) {
     const handler = (_event, payload) => {
         callback(payload);
@@ -132,6 +137,12 @@ const wcvBrowserAPI = {
     onZOrderChanged: (cb) => subscribeIpcChannel('wcv:z-order-changed', cb),
     onShortcutForwarded: (cb) => subscribeIpcChannel('wcv:shortcut-forwarded', cb),
     onCursorChanged: (cb) => subscribeIpcChannel('wcv:cursor-changed', cb),
+    pushCursorState: (k, s) => electron_1.ipcRenderer.invoke('wcv:push-cursor-state', k, s),
+    onRemoteControlCommand: (cb) => subscribeIpcChannel('wcv:remote-control-command', cb),
+    ackRemoteControlCommand: (a) => electron_1.ipcRenderer.invoke('wcv:remote-control-command-ack', a),
+    reclaimRemoteControl: (k, opts) => opts !== undefined
+        ? electron_1.ipcRenderer.invoke('wcv:reclaim-remote-control', k, opts)
+        : electron_1.ipcRenderer.invoke('wcv:reclaim-remote-control', k),
 };
 let promptRequestSubscriberCount = 0;
 const electronNativeAPI = {
@@ -142,6 +153,8 @@ const electronNativeAPI = {
     maximize: () => electron_1.ipcRenderer.invoke('window:maximize'),
     unmaximize: () => electron_1.ipcRenderer.invoke('window:unmaximize'),
     isMaximized: () => electron_1.ipcRenderer.invoke('window:is-maximized'),
+    ...(hasCustomWindowControls ? { customWindowControls: true } : {}),
+    onMaximizedChange: (callback) => subscribeIpcChannel(MAXIMIZED_CHANGED_CHANNEL, (isMaximized) => callback(isMaximized === true)),
     close: () => electron_1.ipcRenderer.invoke('window:close'),
     toggleDevTools: () => electron_1.ipcRenderer.invoke('window:toggle-devtools'),
     zoomIn: () => {
@@ -429,8 +442,33 @@ function permissionsOf(v) {
         screenRecordingNeedsRelaunch: o['screenRecordingNeedsRelaunch'] === true,
     };
 }
+const PANE_REGISTRATIONS = [
+    'prompted',
+    'already-granted',
+    'skipped',
+    'failed',
+];
+function openSettingsResultOf(v) {
+    const o = (v && typeof v === 'object' ? v : {});
+    const r = PANE_REGISTRATIONS.find((x) => x === o['registered']);
+    const name = o['appName'];
+    return {
+        registered: r ?? 'failed',
+        promptedThisSession: o['promptedThisSession'] === true,
+        guide: o['guide'] === 'shown' ? 'shown' : 'unavailable',
+        appName: typeof name === 'string' ? name.slice(0, 256) : '',
+    };
+}
 const computerPreviewAPI = {
-    open: () => electron_1.ipcRenderer.invoke('computer-preview:open'),
+    open: async () => {
+        const r = await electron_1.ipcRenderer.invoke('computer-preview:open');
+        // previewIpc.ts's PreviewOpenResult: a failure rejects as before, now
+        // with a stable code first ("SIDECAR_MISSING: ...") the pane can show.
+        if (r?.ok === false) {
+            throw new Error(`${r.error?.code}: ${r.error?.message}`);
+        }
+        return { sessionId: r.sessionId, type: r.type, sdp: r.sdp };
+    },
     answer: (sessionId, sdp) => electron_1.ipcRenderer.invoke('computer-preview:answer', sessionId, sdp),
     renew: (sessionId) => electron_1.ipcRenderer.invoke('computer-preview:renew', sessionId),
     close: (sessionId) => electron_1.ipcRenderer.invoke('computer-preview:close', sessionId),
@@ -459,10 +497,19 @@ const computerPreviewAPI = {
         if (pane !== 'accessibility' && pane !== 'screenRecording') {
             throw new Error('openPermissionSettings: unknown pane');
         }
-        await electron_1.ipcRenderer.invoke('computer-permissions:open-settings', pane);
+        return openSettingsResultOf(await electron_1.ipcRenderer.invoke('computer-permissions:open-settings', pane));
+    },
+    closePermissionGuide: async () => {
+        await electron_1.ipcRenderer.invoke('computer-permissions:close-guide');
     },
     relaunchApp: async () => {
         await electron_1.ipcRenderer.invoke('computer-permissions:relaunch');
+    },
+    stopAll: async () => {
+        await electron_1.ipcRenderer.invoke('computer-preview:stop-all');
+    },
+    stopAgent: async (actorId) => {
+        await electron_1.ipcRenderer.invoke('computer-preview:stop-agent', actorId);
     },
 };
 electron_1.contextBridge.exposeInMainWorld('nativeNotifications', notificationAPI);
@@ -486,6 +533,8 @@ if (isRemoteWindow) {
         maximize: electronNativeAPI.maximize,
         unmaximize: electronNativeAPI.unmaximize,
         isMaximized: electronNativeAPI.isMaximized,
+        ...(hasCustomWindowControls ? { customWindowControls: true } : {}),
+        onMaximizedChange: electronNativeAPI.onMaximizedChange,
         close: electronNativeAPI.close,
         toggleDevTools: electronNativeAPI.toggleDevTools,
         zoomIn: electronNativeAPI.zoomIn,
@@ -879,6 +928,10 @@ if (!isRemoteWindow) {
 
 // Antigravity 2.0 Chinese Localization Engine Enhanced
 (function() {
+  if (typeof window !== 'undefined') {
+    if (window.__agyDomTranslatorInitialized) return;
+    window.__agyDomTranslatorInitialized = true;
+  }
   // 2.29.1 扩展市场全量插件、提示词与生态卡片汉化
   const dictionary = {
     "File": "文件",
@@ -1311,7 +1364,6 @@ if (!isRemoteWindow) {
     "Overview": "概览",
     "Artifacts": "工件",
     "Conversations": "对话",
-    "Agent settings and permissions for conversations outside of projects.": "项目外部对话的智能体设置和权限配置。",
     "Not in Project": "不在项目中",
     "Manage project folders, agent settings, and permissions.": "管理项目文件夹、智能体设置和专属权限。",
     "Requires manual review for all terminal commands and file accesses outside of the working folders.": "对所有终端命令以及工作区文件夹之外的文件访问均需要手动审查。",
@@ -1765,6 +1817,8 @@ if (!isRemoteWindow) {
     "Agent stopped": "智能体已停止",
     "Agent encountered an internal error.": "智能体遇到内部错误。",
     "Agent terminated due to error": "智能体因错误而终止",
+    "You can prompt the model to try again or start a new conversation if the error persists. See our troubleshooting guide for more help.": "您可以提示模型重试，若错误持续出现，请发起新对话。更多帮助请参阅我们的故障排除指南。",
+    "See our troubleshooting guide for more help.": "更多帮助请参阅我们的故障排除指南。",
     "Agent data is not available": "智能体数据不可用",
     "Accept Step": "接受步骤",
     "Reject Step": "拒绝步骤",
@@ -1985,6 +2039,14 @@ if (!isRemoteWindow) {
     "Sidebar": "侧边栏",
     "Display Options": "显示选项",
     "Message input": "消息输入框",
+    "Build me a web app": "帮我构建一个 Web 应用",
+    "Add a Gemini feature to my app": "给我的应用添加 Gemini 功能",
+    "Bring over my setup from other Agentic Developer Tools": "从其他智能体开发工具迁移我的配置",
+    "Dismiss suggestion": "关闭建议",
+    "Background color picker": "背景颜色选择器",
+    "Foreground color picker": "前景颜色选择器",
+    "Accent color picker": "强调色选择器",
+    "Breadcrumb": "面包屑导航",
     "Record voice memo": "录制语音备忘",
     "Typeahead menu": "预输入菜单",
     "voice memo": "语音备忘",
@@ -2706,6 +2768,7 @@ if (!isRemoteWindow) {
     "Data storage path": "数据存储路径",
     "AI Credits": "AI 点数",
     "Use AI credits": "使用个人 AI 点数",
+    "Use Hydrogen for better quality with lower quota usage.": "使用 Hydrogen 可获得更好的质量，同时消耗更少配额。",
     "Consume personal tier credits for faster inference and higher rate limits.": "使用个人等级点数以获得更快的推理速度和更高的调用限额。",
     "Account & Profile": "账号与个人中心",
     "Manage subscription": "管理订阅计划",
@@ -5144,7 +5207,658 @@ if (!isRemoteWindow) {
     "Carbon that may offload routine steps to Hydrogen. Same Carbon-level quality, fewer tokens used.": "由 Carbon 主导，可将常规步骤分流至 Hydrogen 执行。保持 Carbon 级输出质量，消耗更少 Token。",
     "Argon that may offload routine steps to Hydrogen. Same Argon-level quality, fewer tokens used.": "由 Argon 主导，可将常规步骤分流至 Hydrogen 执行。保持 Argon 级输出质量，消耗更少 Token。",
     "Not PII/NTK": "勿含敏感数据",
-    "Do not use for PII/NTK data.": "请勿用于 PII/NTK 敏感数据。"
+    "Do not use for PII/NTK data.": "请勿用于 PII/NTK 敏感数据。",
+    "Start Voice mode": "开启语音模式",
+    "Listening. Ask anything.": "正在聆听，随时提问。",
+    "Connecting…": "正在连接…",
+    "Still connecting…": "仍在连接…",
+    "Are you sure you want to delete this conversation? This action cannot be undone.": "确定要删除该对话吗？此操作无法撤销。",
+    "? This will remove it from your MCP configuration.": "吗？这将从你的 MCP 配置中移除。",
+    "View archived in the sidebar (![filter](icon://filter_list) menu).": "已归档内容可在侧边栏（显示选项菜单）中查看。",
+    "View archived in the sidebar (Display options menu).": "已归档内容可在侧边栏（显示选项菜单）中查看。",
+    "Your This Computer setting": "沿用你在「本机」的设置",
+    "Your Remote setting": "沿用你在「远程」的设置",
+    "Compacting": "正在压缩上下文",
+    "Compacting...": "正在压缩上下文...",
+    "Compacting…": "正在压缩上下文…",
+    "Shares this repository, with a working copy of its own. Uncommitted changes stay behind.": "共享此仓库并拥有独立工作副本，未提交的更改将留在原处。",
+    "A copy of the workspace snapshot recorded at this step.": "此步骤记录的工作区快照副本。",
+    "A full copy of this workspace, uncommitted changes included.": "此工作区的完整副本（包含未提交的更改）。",
+    "Rewinds the conversation only. Files in this workspace stay as they are now.": "仅回退对话历史，此工作区中的文件保持当前状态不变。",
+    "Keeps working in this workspace. Nothing is copied.": "继续在此工作区中工作，不会复制任何内容。",
+    "Creating worktree for the forked conversation...": "正在为派生的对话创建工作树...",
+    "Creating workspace for the forked conversation...": "正在为派生的对话创建工作区...",
+    "Creating the forked conversation...": "正在创建派生的对话...",
+    "For most deep reasoning and complex problems": "适用于大多数深度推理与复杂问题",
+    "For most deep reasoning and complex problems.": "适用于大多数深度推理与复杂问题。",
+    "For your hardest, long-horizon tasks": "适用于最具挑战性的长周期复杂任务",
+    "For your hardest, long-horizon tasks.": "适用于最具挑战性的长周期复杂任务。",
+    "The original Gemini 4 model for advanced workflows": "初代 Gemini 4 模型，适用于进阶工作流",
+    "The original Gemini 4 model for advanced workflows.": "初代 Gemini 4 模型，适用于进阶工作流。",
+    "For speed and efficiency in execution tasks": "适用于追求速度与效率的执行类任务",
+    "For speed and efficiency in execution tasks.": "适用于追求速度与效率的执行类任务。",
+    "Neon that may offload routine steps to Hydrogen. Same Neon-level quality, fewer tokens used.": "由 Neon 主导，可将常规步骤分流至 Hydrogen 执行。保持 Neon 级输出质量，消耗更少 Token。",
+    "Input Box": "输入框",
+    "Choose which key sends a message in the chat composer.": "选择在聊天输入框中按哪个键发送消息。",
+    "Press Cmd+Enter to send, Enter for a new line.": "按 Cmd+Enter 发送，按 Enter 换行。",
+    "Press Ctrl+Enter to send, Enter for a new line.": "按 Ctrl+Enter 发送，按 Enter 换行。",
+    "Press Enter to send, Shift+Enter for a new line.": "按 Enter 发送，按 Shift+Enter 换行。",
+    "Messages now send immediately. Configure in": "消息现在将立即发送。前往",
+    "Instead of queueing, try asking the agent to do something after the current task.": "消息现在直接发送而非排队；如需后续处理，请让智能体在当前任务完成后再执行。",
+    "Cmd+click to open": "Cmd+单击打开",
+    "Ctrl+click to open": "Ctrl+单击打开",
+    "Describe your changes": "描述您的更改",
+    "Describe your changes, or leave empty to auto-generate": "描述您的更改，或留空以自动生成",
+    "Sync JJ worktrees to head": "将 JJ 工作树同步到 Head",
+    "Orchestrator Settings": "Orchestrator 设置",
+    "Choose the models Orchestrator uses. A larger, smarter orchestrator model with a faster, cheaper executor gives high quality for fewer tokens.": "选择 Orchestrator 使用的模型。以更强、更聪明的 Orchestrator 模型搭配更快、更实惠的执行器模型，可在消耗更少 Token 的同时获得高质量输出。",
+    "Orchestrator Model": "Orchestrator 模型",
+    "Plans the work, makes design decisions, and reviews the result. Pick a top-tier model. You can also pick one per conversation from the Orchestrator row in the model menu.": "负责规划任务、做出设计决策并审查最终结果，建议选择顶尖模型。您也可以在模型菜单的 Orchestrator 行中为单次对话单独指定。",
+    "Executor Model": "执行器模型",
+    "Carries out the plan: searches, edits, builds, and tests. Pick a faster, cheaper model.": "负责执行计划：检索、编辑、构建与测试，建议选择速度更快、成本更低的模型。",
+    "Offloads routine steps to a faster executor. Same quality, fewer tokens used.": "将常规步骤分流至更快的执行器模型，质量不减，Token 消耗更低。",
+    "The Orchestrator's own planner": "Orchestrator 自带规划器",
+    "Thinking effort": "思考深度",
+    "Controls how much time and quota the model spends reasoning before responding. Higher effort improves accuracy on hard problems, at the cost of slower responses and higher quota use.": "控制模型在回复前用于深度推理的时间与配额。提高思考深度有助于攻克难题，但也会相应增加响应耗时与配额消耗。",
+    "ELMO Composite": "ELMO 复合语音",
+    "Run Jetski Live on the ELMO composite voice actor.": "在 ELMO 复合语音角色上运行 Jetski Live。",
+    "Coordinator": "协调器",
+    "Skip": "跳过",
+    "Skipped": "已跳过",
+    "Add note": "添加备注",
+    "Add a note or condition...": "添加备注或条件...",
+    "In chat": "在对话中查看",
+    "Answered": "已回答",
+    "Answered:": "已回答：",
+    "Resolved in chat": "已在对话中处理",
+    "Replaced by newer request": "已被新请求替代",
+    "Expired · Action not taken": "已过期 · 未执行操作",
+    "Ask to retry": "请求重试",
+    "Select one or more options": "选择一个或多个选项",
+    "Other answer": "其他回答",
+    "Retry requested": "已请求重试",
+    "Yes, allow for this conversation": "是，在当前对话中允许",
+    "Allow for conversation": "在当前对话中允许",
+    "Allow in project": "在当前项目中允许",
+    "Allow in workspace": "在当前工作区中允许",
+    "Runtime permission": "运行时权限",
+    "Permission approval scope": "权限审批作用域",
+    "Confirm the command is safe to run outside of the sandbox with full network and disk access.": "请确认该命令在拥有完整网络和磁盘访问权限的沙盒外环境运行是否安全。",
+    "Tell the agent what to do instead...": "告诉智能体改为执行什么操作...",
+    "Deny with note": "附带备注拒绝",
+    "Reply": "回复",
+    "Customize Sidebar": "自定义侧边栏",
+    "View archived in the sidebar (Customize Sidebar).": "已归档内容可在侧边栏（自定义侧边栏）中查看。",
+    "View archived in the sidebar (![tune](icon://tune) Customize Sidebar).": "已归档内容可在侧边栏（自定义侧边栏）中查看。",
+    "Idle Conversations": "空闲对话",
+    "Only applies when grouped by status": "仅在按状态分组时生效",
+    "Decorations": "装饰元素",
+    "Filters": "筛选器",
+    "Show Automation Conversations": "显示自动化对话",
+    "Show Plugin Conversations": "显示插件对话",
+    "Filter and Sort": "筛选与排序",
+    "Last Activity": "最近活动",
+    "Any time": "不限时间",
+    "7 days": "7 天",
+    "14 days": "14 天",
+    "21 days": "21 天",
+    "Manual Order": "手动排序",
+    "Needs Input": "等待输入",
+    "Edits the conversation title": "编辑对话标题",
+    "Unsent draft": "未发送的草稿",
+    "Category": "分类",
+    "Clear category": "清除分类",
+    "Most popular matches first": "优先显示最热门匹配",
+    "Most popular first": "优先显示最热门",
+    "Set up my environment": "配置我的环境",
+    "Screen locked: agents can't use this Mac until you unlock it": "屏幕已锁定：在您解锁之前，智能体无法使用此 Mac",
+    "Connecting to the live preview…": "正在连接实时预览…",
+    "Connecting to the live preview...": "正在连接实时预览...",
+    "Live preview unavailable": "实时预览不可用",
+    "Open System Settings ↗": "打开系统设置 ↗",
+    "Reopen ↗": "重新打开 ↗",
+    "Allowed ✓": "已允许 ✓",
+    "Waiting…": "等待中…",
+    "Granted": "已授予",
+    "Continue Task →": "继续任务 →",
+    "Continue Task": "继续任务",
+    "In System Settings, turn on": "在“系统设置”中开启",
+    ". If it isn't in the list, drag it in from the small window next to System Settings.": "。如果列表中没有，请从“系统设置”旁的小窗口将其拖入。",
+    "In System Settings, click": "在“系统设置”中点击",
+    ", choose": "，选择",
+    ", then turn it on.": "，然后开启它。",
+    "Already on? Select": "已经开启？请选中",
+    ", then": "，然后",
+    "drag it back in from the small window.": "从旁边的小窗口重新拖入。",
+    "and add it again.": "并重新添加。",
+    "not installed": "未安装",
+    "Telemetry is turned off for your account.": "您的账号已关闭遥测功能。",
+    "This setting is turned off for your account.": "您的账号已关闭此设置。",
+    "Searching older messages…": "正在搜索更早的消息…",
+    "Searching older messages...": "正在搜索更早的消息...",
+    "Loading older messages…": "正在加载更早的消息…",
+    "Loading older messages...": "正在加载更早的消息...",
+    "Couldn't load older messages — retry": "无法加载更早的消息 — 点击重试",
+    "Couldn't load older messages, retry": "无法加载更早的消息，点击重试",
+    "Couldn't load older messages · Retry": "无法加载更早的消息 · 重试",
+    "Loaded older messages": "已加载更早的消息",
+    "Couldn't load older messages. Try again.": "无法加载更早的消息，请重试。",
+    "UI Plugin (SidePanel)": "UI 插件（侧边栏面板）",
+    "UI Plugins": "UI 插件",
+    "UI plugins": "UI 插件",
+    "This plugin is currently stopped. Events and stdout streams will appear here once started.": "此插件当前已停止。启动后，事件和标准输出流将在此处显示。",
+    "Events and stdout streams will appear here as they occur.": "事件和标准输出流将在发生时实时显示在此处。",
+    "Start Plugin": "启动插件",
+    "No sign-in required. This app is ready to use.": "无需登录，此应用已就绪可用。",
+    "Signing out…": "正在退出登录…",
+    "Signing out...": "正在退出登录...",
+    "Weekdays": "每个工作日",
+    "Weekly": "每周",
+    "(opens in external browser)": "（在外部浏览器中打开）",
+    "(opens in a new tab)": "（在新标签页中打开）",
+    "Failed to create automation.": "创建自动化失败。",
+    "Build, package, and debug MCP Apps for Antigravity: MCP server tools whose results render as interactive UI in the conversation, in the side pane, or full-page from the sidebar. Use when adding a UI to an MCP tool, building or theming the app itself, packaging it as a plugin, or debugging an app that doesn't render or behave as expected.": "为 Antigravity 构建、打包并调试 MCP 应用：这类 MCP 服务器工具的返回结果会以交互式 UI 呈现——可显示在对话中、侧边面板内，或从侧边栏打开为整页。适用于为 MCP 工具添加界面、构建或定制应用主题、将其打包为插件，以及调试渲染或行为不符合预期的应用。",
+    "Migrates the user's MCP servers, skills, slash commands, subagents, and instruction files from other coding agents (Claude Code, Codex, Cursor, Gemini CLI) into one new Antigravity plugin. Use when the user wants to bring over, import, or migrate their setup or config from another agent or tool. Don't use for installing Marketplace plugins or authoring a new plugin from scratch (use the plugin skill).": "把用户在其他编码智能体（Claude Code、Codex、Cursor、Gemini CLI）中的 MCP 服务器、技能、斜杠命令、子智能体与指令文件迁移到一个新的 Antigravity 插件中。适用于用户希望导入或迁移其他智能体或工具的配置。不适用于安装市场插件或从零编写新插件（请使用 plugin 技能）。",
+    "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board. Use when the work splits into pieces that can be done at the same time, or when a second pair of eyes should check the first pair's work.": "（预览版，消耗额度较多）运行一个编排集群：多个智能体并行处理同一任务，各自在独立对话中工作，并通过共享留言板协作。适用于任务可拆分为可同时推进的多块，或需要第二组人复核第一组工作的情况。",
+    "How to write and run a dynamic workflow script with the `run_workflow` tool: a Python script that orchestrates many agents with `agent`, `parallel`, `pipeline`, and `phase`. Use when a task splits into many independent or staged pieces of agent work (fan out over files, modules, bugs, or review angles, then aggregate), or when the user asks for a workflow. Don't use for a single delegated task (use a subagent) or for legacy workflow files (see migrate-workflows).": "介绍如何用 `run_workflow` 工具编写并运行动态工作流脚本：这是一段 Python 脚本，通过 `agent`、`parallel`、`pipeline` 与 `phase` 来编排多个智能体。适用于任务可拆成多个独立或分阶段的智能体工作（按文件、模块、缺陷或评审角度分发后再汇总），或用户明确要求工作流时。不适用于单次委派任务（请用子智能体）或旧版工作流文件（见 migrate-workflows）。",
+    "ONLY for the native-swarm worker whose brief says it is the monitor. On a timer, it checks whether the whole swarm has stalled and calls on the one member who can unstick it. Coordinators and other workers: do not load this.": "仅用于简介中声明自己是 monitor 的 native-swarm 工作者。它按定时器检查整个集群是否停滞，并召集唯一能让其恢复推进的成员。协调者与其他工作者请勿加载本技能。",
+    "ONLY for the native-swarm worker whose brief says it is the narrator. It watches the board and keeps the facts behind the user's Overview (view.json) current. Coordinators and other workers: do not load this.": "仅用于简介中声明自己是 narrator 的 native-swarm 工作者。它监视留言板，维护用户「概览」（view.json）背后的事实数据。协调者与其他工作者请勿加载本技能。",
+    "What the coordinator writes so the Swarm UI's Overview can show the swarm's goal, its groups of work and a screenshot timeline. Load it before you brief and add the first workers to a swarm.": "协调者写入的内容，用于让 Swarm 界面的「概览」展示集群目标、工作分组与截图时间线。在为集群撰写简介并加入首批工作者之前加载本技能。",
+    "e.g. work": "例如：work",
+    "e.g., curl": "例如：curl",
+    "Open in Cider": "在 Cider 中打开",
+    "e.g., npm test": "例如：npm test",
+    "Couldn't connect": "无法连接",
+    "Method not found": "方法不存在",
+    "e.g., example.com": "例如：example.com",
+    "e.g., chromium/src": "例如：chromium/src",
+    "e.g., /path/to/file": "例如：/path/to/file",
+    "Skipping...": "正在跳过…",
+    "e.g., main or refs/heads/main": "例如：main 或 refs/heads/main",
+    "script source must not be empty": "脚本源码不能为空",
+    "Unlock the power of agent swarms.": "解锁智能体集群的全部能力。",
+    "Extra High": "极高",
+    "Extra high": "极高",
+    "Allow read access to this path?": "是否允许读取此路径？",
+    "Allow write access to this path?": "是否允许写入此路径？",
+    "Yes, allow this time": "是，仅本次允许",
+    "Yes, allow this download": "是，允许本次下载",
+    "Yes, save rule in this conversation": "是，在当前对话中保存规则",
+    "Yes, and always allow in this conversation": "是，并在当前对话中始终允许",
+    "Yes, save rule globally": "是，全局保存规则",
+    "Yes, and always allow": "是，并始终允许",
+    "No (tell the agent what to do instead)": "否（告诉智能体改为执行什么操作）",
+    "(tell the agent what to do instead)": "（告诉智能体改为执行什么操作）",
+    "Allow the browser agent to download a file?": "是否允许浏览器智能体下载文件？",
+    "Requires manual confirmation.": "需要人工确认。",
+    "No swarm in this conversation": "当前对话中暂无 Swarm",
+    "Watching for a swarm": "正在等待 Swarm 启动",
+    "Looking for this conversation's swarm…": "正在查找当前对话的 Swarm…",
+    "Looking for this conversation's swarm...": "正在查找当前对话的 Swarm...",
+    "Swarms started in this conversation appear here automatically, with their board, members and @mention graph. Start one with /swarm.": "当前对话中启动的 Swarm 会自动显示在此处，包含其看板、成员与 @mention 关系图。输入 /swarm 即可启动。",
+    "Open this pane from a conversation to see its swarm. Swarms started there appear here automatically; start one with /swarm.": "请从对话中打开此面板以查看其 Swarm。在对话中启动的 Swarm 会自动显示在此处；输入 /swarm 即可启动。",
+    "Untitled swarm": "未命名 Swarm",
+    "Live": "实时",
+    "Reconnecting": "正在重连",
+    "Updates automatically": "自动更新",
+    "Lost contact with the swarm sidecar; retrying": "与 Swarm 伴生服务断开连接，正在重试",
+    "Swarm views": "Swarm 视图",
+    "Board": "看板",
+    "Graph": "关系图",
+    "Raw": "原始数据",
+    "Goal": "目标",
+    "The team": "团队成员",
+    "Coordinator · Working": "协调器 · 工作中",
+    "Planned next": "后续计划",
+    "Threads": "线程",
+    "Now": "现在",
+    "Compare with now": "与当前对比",
+    "Hide compare": "隐藏对比",
+    "Open full timeline": "打开完整时间线",
+    "Nothing blocked": "暂无阻塞项",
+    "Needs you": "需要你处理",
+    "Waiting on @coordinator": "等待 @coordinator",
+    "Stuck": "卡住",
+    "Nothing waiting": "暂无等待项",
+    "Nothing stuck": "暂无卡住项",
+    "Nothing needs you": "暂无需要你处理的事项",
+    "Nothing running": "暂无运行中任务",
+    "Nothing planned": "暂无后续计划",
+    "Moving": "推进中",
+    "Resting": "休眠中",
+    "Retired": "已停用",
+    "In review": "审核中",
+    "No tasks completed yet.": "暂未完成任何任务。",
+    "System alerts": "系统提醒",
+    "overview · from the narrator’s notes": "概览 · 来自旁白笔记",
+    "overview · from the narrator's notes": "概览 · 来自旁白笔记",
+    "narrator's page · AI-generated": "旁白视图 · AI 生成",
+    "Narrator’s page": "旁白视图",
+    "Narrator's page": "旁白视图",
+    "Retry narrator's page": "重试加载旁白视图",
+    "Want this view different? Tell the coordinator.": "想调整此视图的展示方式？直接告诉协调器即可。",
+    "Open coordinator chat": "打开协调器对话",
+    "Your swarm is starting": "Swarm 正在启动",
+    "One goal": "一个目标",
+    "The coordinator splits it into tasks.": "协调器会将其拆分为多个任务。",
+    "Many workers": "多位成员",
+    "Each takes a task, and they run in parallel.": "每位成员认领各自任务并并行执行。",
+    "One board": "一块看板",
+    "Updates land here. You step in only when asked.": "所有进展都会汇总于此，仅在需要时请你介入。",
+    "Waiting for the first update": "正在等待首条进展更新",
+    "Swarm stalled — no agents working": "Swarm 已停滞 — 当前无智能体运行",
+    "stale": "待更新",
+    "Search posts": "搜索动态",
+    "Channels": "频道",
+    "Filter by poster": "按发布者筛选",
+    "Show posts by one member": "仅显示指定成员的动态",
+    "From anyone": "所有发布者",
+    "Filter by recipient": "按提及对象筛选",
+    "Show posts that call on one member": "仅显示提及指定成员的动态",
+    "To anyone": "所有接收者",
+    "Filter by channel": "按频道筛选",
+    "Show posts in one channel": "仅显示指定频道的动态",
+    "All channels": "全部频道",
+    "all channels": "全部频道",
+    "Keep the newest post in view": "始终保持最新动态在视野内",
+    "Follow": "跟随最新",
+    "Show or hide each member's posts": "显示或隐藏各成员的动态",
+    "Latest": "跳至最新",
+    "No posts match": "没有匹配的动态",
+    "No posts yet": "暂无动态",
+    "Not on the roster": "不在成员花名册中",
+    "Search members": "搜索成员",
+    "Killed": "已终止",
+    "Active: mid-turn (thinking, running a tool, or waiting on the model)": "活跃：正在执行本轮任务（思考、调用工具或等待模型响应）",
+    "Waiting: turn ended, asleep on the board until a post wakes it": "等待中：本轮已结束，正在看板休眠等待新消息唤醒",
+    "Killed: removed from the swarm": "已终止：已从当前 Swarm 中移除",
+    "All workers": "全部成员",
+    "Filter by worker": "按成员筛选",
+    "seen just now": "刚刚活跃",
+    "Replay": "回放",
+    "Jump to start": "跳至开头",
+    "Previous post (←)": "上一条动态 (←)",
+    "Previous post": "上一条动态",
+    "Play / pause replay (space)": "播放 / 暂停回放 (空格)",
+    "Play replay": "播放回放",
+    "Pause replay": "暂停回放",
+    "Next post (→)": "下一条动态 (→)",
+    "Next post": "下一条动态",
+    "Replay position": "回放进度",
+    "Scrub through board posts": "拖动查看看板历史动态",
+    "Show everything and follow live": "显示全部并实时跟随",
+    "Graph view": "图谱视图",
+    "Hive": "蜂巢",
+    "Threads as cells, with each worker where it works": "以蜂巢格展示线程及各成员工作位置",
+    "Who @mentions whom": "展示成员间的 @mention 协作关系",
+    "Hide killed and inactive members from the graph": "在图中隐藏已终止和非活跃成员",
+    "Hide inactive": "隐藏非活跃",
+    "Draw @all as an edge to every member": "将 @all 绘制为指向所有成员的连线",
+    "Expand @all": "展开 @all",
+    "Replay pacing": "回放节奏",
+    "Even pacing": "均匀节奏",
+    "Real-time gaps": "真实时间间隔",
+    "Replay speed": "回放倍速",
+    "Export graph replay as an animated GIF": "将关系图回放导出为动态 GIF",
+    "Export GIF": "导出 GIF",
+    "Exporting…": "正在导出…",
+    "Nothing to export yet.": "暂无可导出的内容。",
+    "Could not download GIF from embedded pane.": "无法在嵌入面板中直接下载 GIF。",
+    "Could not export GIF.": "导出 GIF 失败。",
+    "@mention, width = count": "@mention 连线，粗细表示次数",
+    "via @all": "通过 @all 广播",
+    "posted with no mention": "未提及他人的动态",
+    "@all posts, drawn by Expand @all": "@all 广播动态，开启“展开 @all”时绘制",
+    "Tasks done": "已完成任务",
+    "Message just sent": "刚发送的消息",
+    "Waiting on": "等待中",
+    "No one is on this thread yet.": "此线程暂时还没有成员。",
+    "Copy failed": "复制失败",
+    "Close preview": "关闭预览",
+    "Exported swarm graph replay": "已导出的 Swarm 关系图回放",
+    "Right-click image to save, or open in a new tab.": "右键图片即可保存，或在新标签页中打开。",
+    "Frames": "帧列表",
+    "That link isn't allowed here.": "此处不允许打开该链接。",
+    "Opening files needs the app.": "打开文件需要在客户端内操作。",
+    "Click a link in the view to open it.": "请点击视图中的链接来打开。",
+    "Waiting for posts": "等待看板新动态",
+    "See more": "展开更多",
+    "Loading...": "加载中...",
+    "Loading…": "加载中…",
+    "Loading logs...": "正在加载日志...",
+    "Loading Browser recording...": "正在加载浏览器录制...",
+    "Error loading Browser recording": "加载浏览器录制出错",
+    "Launching the browser...": "正在启动浏览器...",
+    "Resolving permissions...": "正在解析权限...",
+    "This may take a few minutes": "这可能需要几分钟",
+    "Your sign-in needs an update.": "你的登录状态需要更新。",
+    "to use Voice.": "以使用语音功能。",
+    "Microphone blocked. Allow in": "麦克风已被阻止，请前往",
+    "Microphone blocked. Allow in Privacy Settings.": "麦克风已被阻止。请在隐私设置中允许访问。",
+    "Microphone blocked. Allow in System Settings.": "麦克风已被阻止。请在系统设置中允许访问。",
+    "Authentication Required": "需要身份验证",
+    "Other sign-in options": "其他登录选项",
+    "Finish signing in in your browser.": "请在浏览器中完成登录。",
+    "Enable the plugin to sign in.": "请先启用此插件再登录。",
+    "Business Account Sign In": "企业账户登录",
+    "Use Advanced SSO Config": "使用高级 SSO 配置",
+    "Credentials stay on this machine and are only sent to the domains listed.": "凭据仅保存在本机，且只会发送到下方列出的域名。",
+    "Other credentials stay on this machine.": "其他凭据仅保存在本机。",
+    "Credentials are only sent to the domains listed.": "凭据只会发送到下方列出的域名。",
+    "Services this plugin connects to on your behalf.": "此插件将代表你连接以下服务。",
+    "If you add multiple accounts, MCP servers use the one marked Default.": "如果你添加了多个账户，MCP 服务器将使用标有“默认”的账户。",
+    "Enable this plugin to manage its accounts.": "启用此插件以管理其账户。",
+    "API key": "API 密钥",
+    "Basic auth": "基本认证",
+    "A bash script run in your cloud environment after cloning repositories (or configure interactively in chat with /env-setup).": "在云端环境克隆代码仓库后自动运行的 Bash 脚本（也可在对话中使用 /env-setup 进行交互式配置）。",
+    "A new version is available.": "有新版本可用。",
+    "To update:": "更新步骤：",
+    "Go to the machine you are controlling and quit Antigravity. It installs pending updates the next time it starts.": "前往你正在控制的设备并退出 Antigravity。下次启动时它会自动安装待处理的更新。",
+    "Snooze for 24 Hours": "24 小时后提醒",
+    "Code Change Summary": "代码变更摘要",
+    "File Diff Comments": "文件差异评论",
+    "Switch IDE Workspace": "切换 IDE 工作区",
+    "This chat's environment is paused": "此对话的环境已暂停",
+    "Start it again.": "重新启动。",
+    "A project with this name already exists.": "已存在同名项目。",
+    "Missing a repository? Configure on GitHub": "找不到代码仓库？前往 GitHub 配置",
+    "Only Automations": "仅自动化任务",
+    "Empty directory": "空目录",
+    "Empty log": "空日志",
+    "Failed to load image": "图片加载失败",
+    "Failed to load shared conversation": "加载共享对话失败",
+    "No content available for this resource": "此资源暂无可用内容",
+    "No instances yet.": "暂无实例。",
+    "Rendering playback": "正在渲染回放",
+    "Playback available": "回放可用",
+    "Error rendering playback": "渲染回放出错",
+    "Read URL rejected": "读取 URL 被拒绝",
+    "Page contents": "页面内容",
+    "Open URL": "打开链接",
+    "Multi-select": "多选",
+    "Full output written to": "完整输出已写入",
+    "Whether it never connects or is intermittent/flaky": "是一直无法连接，还是间歇性断开/不稳定",
+    "Did restarting the desktop app help?": "重启桌面应用是否解决了问题？",
+    "Allow again": "重新允许",
+    "You took over — agent stopped": "你已接管 — 智能体已停止",
+    "Site data cleared for": "已清除以下站点数据：",
+    "Could not clear site data for": "无法清除以下站点数据：",
+    "Here's how uploaded files, attachments, and connected resources work in your cloud environment": "以下介绍上传的文件、附件以及已连接的资源在你的云环境中的工作方式",
+    "Uploaded files and connected resources are mounted in your cloud environment.": "上传的文件和已连接的资源将挂载到你的云环境中。",
+    "Manage project resources and settings": "管理项目资源和设置",
+    "Manage workspace resources and settings": "管理工作区资源和设置",
+    "necessary rights": "必要权利",
+    "Prohibited Use Policy": "禁止使用政策",
+    "Google Antigravity Terms of Service": "Google Antigravity 服务条款",
+    "Google Privacy Policy": "Google 隐私权政策",
+    "Avoid uploading highly sensitive data and verify actions taken by your agent. Make sure you have the necessary rights to any content or files that you upload, including content of minors. Don't generate content that infringes on others' rights, including content that deceives, harasses, or harms. When using Antigravity, you must comply with Google's Prohibited Use Policy. Your use is subject to the Google Antigravity Terms of Service and Google Privacy Policy.": "请勿上传高度敏感的数据，并核实你的智能体所执行的操作。请确保你对你上传的任何内容或文件（包括涉及未成年人的内容）拥有必要权利。请勿生成侵犯他人权利的内容，包括具有欺骗性、骚扰性或危害性的内容。使用 Antigravity 时，你必须遵守 Google 的禁止使用政策。你的使用行为须遵守 Google Antigravity 服务条款和 Google 隐私权政策。",
+    "Inbox": "收件箱",
+    "Inbox Mode": "收件箱模式",
+    "Working Section": "“正在工作”分组",
+    "Keep running conversations in a separate Working section instead of in the Inbox.": "将正在运行的对话放在独立的“正在工作”分组中，而不是留在收件箱里。",
+    "Auto-Resolve": "自动解决",
+    "Move idle Inbox conversations to Resolved automatically after the selected time.": "在所选时间后自动将空闲的收件箱对话移至“已解决”。",
+    "Resolve": "标为已解决",
+    "Resolved": "已解决",
+    "Return to Inbox": "移回收件箱",
+    "All caught up": "已全部处理完毕",
+    "Moved to Resolved.": "已移至“已解决”。",
+    "Conversation resolved": "对话已标为已解决",
+    "Returned conversation to Inbox": "已将对话移回收件箱",
+    "Subtitle": "副标题",
+    "Locked while grouped by Status": "按状态分组时已锁定",
+    "Automatically pin conversations when you send a message. Unpin as needed to keep your Pinned list focused.": "发送消息时自动置顶对话。按需取消置顶以保持置顶列表精简聚焦。",
+    "Changes plugins can make without asking.": "插件无需询问即可执行的更改。",
+    "Allowed by you": "你已允许",
+    "Nothing is always allowed. You'll be asked before this plugin makes changes.": "当前没有任何始终允许的权限。此插件在作出更改前会向你询问。",
+    "Included with plugin": "插件自带",
+    "These come with the plugin and can't be revoked.": "这些权限随插件附带，无法撤销。",
+    "Any resource": "任意资源",
+    "Name unavailable": "名称不可用",
+    "Always allowed": "始终允许",
+    "Revoke all": "全部撤销",
+    "From a plugin": "来自插件",
+    "Applied": "已应用",
+    "Install this plugin to see the commands it adds, along with its skills, agents and MCP servers.": "安装此插件即可查看其添加的命令，以及包含的技能、智能体和 MCP 服务器。",
+    "Failed to load bundle. Please try again.": "加载组合包失败，请重试。",
+    "No MCP servers available.": "暂无可用的 MCP 服务器。",
+    "Error starting sign-in: this host can't start it": "启动登录失败：当前主机无法发起登录",
+    "Dictation languages": "听写语言",
+    "Constrain voice dictation to selected languages in priority order. Leave empty to auto-detect.": "按优先级顺序将语音听写限制为所选语言。留空则自动检测。",
+    "Reset to auto": "重置为自动",
+    "Auto-detect (browser defaults)": "自动检测（浏览器默认）",
+    "Search languages to add (e.g. English, Spanish, 中文, yue)...": "搜索要添加的语言（如 English、Spanish、中文、yue）...",
+    "Click items to multi-select · Drag or ‹/› pills to reorder": "点击条目可多选 · 拖动或点击 ‹/› 按钮调整顺序",
+    "Selected dictation languages": "已选听写语言",
+    "Available dictation languages": "可选听写语言",
+    "Dictation language options": "听写语言选项",
+    "Toggle language list": "展开/收起语言列表",
+    "#1 Primary": "#1 首选",
+    "Chinese (Mandarin)": "汉语（普通话）",
+    "Cantonese": "粤语",
+    "English": "英语",
+    "Spanish": "西班牙语",
+    "French": "法语",
+    "German": "德语",
+    "Japanese": "日语",
+    "Korean": "韩语",
+    "Portuguese": "葡萄牙语",
+    "Italian": "意大利语",
+    "Hindi": "印地语",
+    "Arabic": "阿拉伯语",
+    "Dutch": "荷兰语",
+    "Polish": "波兰语",
+    "Russian": "俄语",
+    "Vietnamese": "越南语",
+    "Thai": "泰语",
+    "Indonesian": "印度尼西亚语",
+    "Turkish": "土耳其语",
+    "Ukrainian": "乌克兰语",
+    "Swedish": "瑞典语",
+    "Hebrew": "希伯来语",
+    "Czech": "捷克语",
+    "Greek": "希腊语",
+    "Romanian": "罗马尼亚语",
+    "Danish": "丹麦语",
+    "Finnish": "芬兰语",
+    "Norwegian": "挪威语",
+    "Continue as a New Conversation": "作为新对话继续",
+    "Continue in Current Workspace": "在当前工作区继续",
+    "Continue in Shared Workspace": "在共享工作区继续",
+    "Continue in New Workspace": "在新工作区继续",
+    "Cannot continue a subagent's side question as a new conversation": "无法将子智能体的侧边提问作为新对话继续",
+    "Cannot continue as a new conversation while side question is running": "侧边提问运行期间无法作为新对话继续",
+    "Cannot continue as a new conversation during Battle Mode — end the battle first": "对决模式期间无法作为新对话继续 — 请先结束对决",
+    "Move Conversation": "移动对话",
+    "Move": "移动",
+    "Move to Project": "移动到项目",
+    "Move to Workspace": "移动到工作区",
+    "New Project...": "新建项目...",
+    "New Workspace...": "新建工作区...",
+    "Remove from Project": "从项目中移除",
+    "Clone from Remote": "从远端克隆",
+    "Clone from This Computer": "从本机克隆",
+    "Clone locally": "克隆到本地",
+    "Search Remote…": "搜索远端…",
+    "Open with": "打开方式",
+    "Text viewer": "文本查看器",
+    "Image viewer": "图片查看器",
+    "Video player": "视频播放器",
+    "Audio player": "音频播放器",
+    "HTML viewer": "HTML 查看器",
+    "Notebook viewer": "Notebook 查看器",
+    "PDF viewer": "PDF 查看器",
+    "System default app": "系统默认应用",
+    "Sidecar disabled": "Sidecar 已禁用",
+    "Not running": "未运行",
+    "Application Menu": "应用菜单",
+    "For Me": "仅自己使用",
+    "Personal agent running as you": "以你的身份运行的个人智能体",
+    "For My Team": "团队共享",
+    "Shared agent for your team": "面向团队的共享智能体",
+    "No agents": "暂无智能体",
+    "What should this agent accomplish?": "希望此智能体完成什么目标？",
+    "Couldn't create the agent. Try again.": "无法创建智能体，请重试。",
+    "Provisioning": "正在配置环境",
+    "Updating": "正在更新",
+    "Stalled": "已停滞",
+    "No longer active": "已不再活跃",
+    "Search by name or username": "按名称或用户名搜索",
+    "Search identities": "搜索身份",
+    "No matching identities": "没有匹配的身份",
+    "Default (Gemini Pro)": "默认（Gemini Pro）",
+    "Default uses server-managed routing and Orchestrator quota. Custom pins specific models for orchestration and execution.": "“默认”使用服务端托管路由与 Orchestrator 配额；“自定义”可为编排与执行固定指定具体模型。",
+    "Orchestrator model selection": "Orchestrator 模型选择",
+    "Get Anything Done with": "轻松搞定一切，尽在",
+    "Let's tailor the experience for you. What best describes your work?": "让我们为你量身定制体验。以下哪项最符合你的工作？",
+    "Plugins are packaged collections of skills and MCPs to help the Agent": "插件是技能与 MCP 的打包集合，可帮助智能体",
+    "There are currently no Build with": "当前暂无可用的 Build with",
+    "plugins available.": "插件。",
+    "Enter Google Cloud Project Details": "输入 Google Cloud 项目详情",
+    "Google Cloud Project ID": "Google Cloud 项目 ID",
+    "This Google Cloud project is not supported. Input a different project, or sign in with another account.": "不支持此 Google Cloud 项目。请输入其他项目，或使用其他账户登录。",
+    "Use Google Cloud project instead": "改用 Google Cloud 项目",
+    "Having trouble signing in?": "登录遇到问题？",
+    "Trouble signing in? Enter authorization code": "登录遇到问题？输入授权码",
+    "Authorization code": "授权码",
+    "Submit code": "提交授权码",
+    "Sign in in your browser, then paste the authorization code shown on the callback page.": "请在浏览器中登录，然后粘贴回调页面上显示的授权码。",
+    "Authorization code sign-in is unavailable in this version.": "当前版本不支持授权码登录。",
+    "Authorization code was rejected. Paste a fresh code and try again.": "授权码已被拒绝。请粘贴新的授权码后重试。",
+    "Switched to authorization code sign-in": "已切换至授权码登录",
+    "Copied sign-in link to clipboard": "已将登录链接复制到剪贴板",
+    "WIF Config": "WIF 配置",
+    "Use this if your admin gave you a WIF config. Paste it below to sign in.": "如果管理员向你提供了 WIF 配置，请将其粘贴到下方以登录。",
+    "Last Used": "上次使用",
+    "Sorry, this account is ineligible to use": "抱歉，此账户无权使用",
+    "Please verify your account, then sign in again to continue. Learn more by visiting our": "请验证你的账户，然后重新登录以继续。如需了解更多，请访问我们的",
+    "Learn more by visiting our": "如需了解更多，请访问我们的",
+    "Verify": "前往验证",
+    "There was an unexpected issue setting up your account.": "设置账户时遇到意外问题。",
+    "We apologize for the inconvenience. Please try again later.": "很抱歉带来不便，请稍后再试。",
+    "Permission decision": "权限决策",
+    "Yes, allow in this conversation": "是，在当前对话中允许",
+    "Yes, always allow in this project": "是，在此项目中始终允许",
+    "Yes, always allow": "是，始终允许",
+    "Yes, allow for this task": "是，本次任务允许",
+    "Waiting for approval to grant administrator access": "正在等待批准授予管理员权限",
+    "Needs your approval": "需要你的批准",
+    "Type your own answer": "输入你自己的回答",
+    "Answered in chat": "已在对话中回答",
+    "Dismissed": "已关闭",
+    "Chosen": "已选择",
+    "Required": "必填",
+    "Loading messages": "正在加载消息",
+    "Loading messages…": "正在加载消息…",
+    "Loading newer messages": "正在加载更新的消息",
+    "Loading newer messages…": "正在加载更新的消息…",
+    "Searching older messages": "正在搜索更早的消息",
+    "Failed to send queued message": "发送排队消息失败",
+    "Queued message sent": "排队消息已发送",
+    "Queued message loaded into editor": "排队消息已载入编辑器",
+    "Agent finished. Queued messages send after background work finishes.": "智能体已完成。排队消息将在后台任务结束后发送。",
+    "You don't have access to this Google Drive file, so its title couldn't be added. The link was kept as-is.": "你没有此 Google Drive 文件的访问权限，因此无法获取标题，已保留原链接。",
+    "Timed out fetching the Google Drive file's title. The link was kept as-is.": "获取 Google Drive 文件标题超时，已保留原链接。",
+    "Couldn't fetch the Google Drive file's title. The link was kept as-is.": "无法获取 Google Drive 文件标题，已保留原链接。",
+    "Scrollable table": "可滚动表格",
+    "Password prompt blocked to prevent a Chrome Password Alert reset.": "已拦截密码提示框，以防止触发 Chrome 密码警报重置。",
+    "Self": "自身",
+    "Self-watch target presets": "自身监听目标预设",
+    "Matches this automation's active identity.": "匹配此自动化任务的当前活动身份。",
+    "Invalid CEL": "无效的 CEL 表达式",
+    "Needs Target": "缺少目标条件",
+    "Incompatible event type": "不兼容的事件类型",
+    "Missing required field": "缺少必填字段",
+    "Include at least one positive": "至少包含一个正向条件",
+    "Indexed CEL helper functions": "已建索引的 CEL 辅助函数",
+    "Git-on-Borg repository used when creating a new Cog workspace from your initial prompt (e.g., chromium/chromium/src or android/platform/superproject).": "从初始提示词创建新的 Cog 工作区时使用的 Git-on-Borg 仓库（例如 chromium/chromium/src 或 android/platform/superproject）。",
+    "e.g., chromium/chromium/src": "例如：chromium/chromium/src",
+    "Please describe your auth or billing issue. More details will help our support team resolve your issue quicker. Some helpful information includes:": "请描述您的认证或计费问题。更多详细信息将有助于我们的支持团队更快为您解决。有帮助的信息包括：",
+    "What quota or feature is being incorrectly limited": "哪些配额或功能被错误限制",
+    "What functionality you expect your account tier to have available that is missing": "您的账户等级应具备但缺失的功能",
+    "Any error messages seen when trying to log in": "尝试登录时看到的任何错误提示",
+    "Join the Google Chat space": "加入 Google Chat 交流群组",
+    "Ask questions, report issues, and discuss features": "提问交流、反馈问题并讨论功能特性",
+    "Screenshot must be under 10 MB": "截图文件大小必须小于 10 MB",
+    "Attaching logs requires an email address": "附加日志需要提供电子邮箱地址",
+    "Submitting...": "正在提交...",
+    "Organization MCP Allowlist (Read-Only)": "组织 MCP 白名单（只读）",
+    "These MCP allowlist rules are enforced by your organization's administrator.": "这些 MCP 白名单规则由您的组织管理员强制执行。",
+    "Pre Tool Use": "工具使用前 (Pre Tool Use)",
+    "Post Tool Use": "工具使用后 (Post Tool Use)",
+    "Fires before a tool step executes.": "在工具步骤执行前触发。",
+    "Fires after a tool step completes.": "在工具步骤完成后触发。",
+    "Fires before the model is called.": "在调用模型前触发。",
+    "Fires after tool calls finish.": "在工具调用结束后触发。",
+    "Fires when the execution loop terminates.": "在执行循环终止时触发。",
+    "Timeout:": "超时：",
+    "Handler #": "处理程序 #",
+    "Matcher:": "匹配器：",
+    "Terms of Service & Data Use": "服务条款与数据使用",
+    "AI coding agents are known to have certain security risks, including autonomous code execution, data exfiltration, prompt injection and supply chain risks. Ensure that you monitor and verify all actions taken by the agent.": "AI 编程智能体存在一定安全风险，包括自主代码执行、数据外泄、提示词注入与供应链风险。请务必监控并核实智能体执行的所有操作。",
+    "Terms and Privacy:": "条款与隐私：",
+    "(excluding product analytics data)": "（不包含产品分析数据）",
+    "One last thing before getting started…": "开始前的最后几项说明…",
+    "A few things to know, and a couple settings to review.": "几件需要了解的事项，以及几项供您确认的设置。",
+    "Please sign in using the Antigravity sidebar panel to view this page.": "请通过 Antigravity 侧边栏面板登录后再查看此页面。",
+    "Please verify your account to continue using": "请验证您的账户以继续使用",
+    "You can prompt the model to try again or start a new conversation if the error persists.": "您可以提示模型重试，若错误持续出现，请发起新对话。",
+    "This error is likely temporary. You can prompt the model to try again after some time.": "此错误可能是暂时的，您可以稍后提示模型重试。",
+    "troubleshooting guide": "故障排除指南",
+    "See our": "请参阅我们的",
+    "Models Tab": "“模型”标签页",
+    "AI Credits are used when you've exceeded your model quota. Keep track of your current AI Credits in the": "超出模型配额后将使用 AI 点数。您可以在以下位置查看当前 AI 点数：",
+    "AI Credits are used when you've exceeded your model quota. Keep track of your current AI Credits in the Models Tab.": "超出模型配额后将使用 AI 点数。您可以在“模型”标签页中查看当前 AI 点数。",
+    "Workflows are changing on October 19th—stay tuned for updates. You can use the agent to migrate your workflows.": "工作流功能将于 10 月 19 日迎来调整，敬请关注更新。您可以使用智能体来迁移现有工作流。",
+    "Migrate with Agent": "使用智能体迁移",
+    "Waiting for tool permission approval — click Open in full conversation (↗) to approve": "正在等待工具权限批准 — 点击“在完整对话中打开 (↗)”进行批准",
+    "Message subagent, @ to mention": "向子智能体发送消息，输入 @ 提及",
+    "Message subagent, @ to mention, / for actions": "向子智能体发送消息，输入 @ 提及，/ 触发操作",
+    "Ask anything, @ to mention": "输入任何问题，输入 @ 提及",
+    "Message queued.": "消息已加入队列。",
+    "Sends after background work finishes.": "将在后台工作完成后发送。",
+    "Best of N Models": "Best of N 模型",
+    "Proceed with implementation plan": "按实施计划继续",
+    "Show 1 earlier step": "显示更早的 1 个步骤",
+    "Denied Sites": "已拒绝的站点",
+    "The agent will wait for you to install the browser extension.": "智能体将等待您安装浏览器扩展程序。",
+    "Antigravity would like to use the browser.": "Antigravity 请求使用浏览器。",
+    "When Turbo mode is on, the agent will automatically capture screenshots in the Browser without explicit user input. You can toggle this setting in Antigravity's settings.": "开启 Turbo 模式后，智能体无需显式确认即可在浏览器中自动截取屏幕截图。您可以在 Antigravity 设置中切换此选项。",
+    "Find plugins - bundles of skills, agents, MCP servers, UI extensions and more, and install them in one click.": "探索插件 — 包含技能、智能体、MCP 服务器、UI 扩展等的打包集合，支持一键安装。",
+    "This extension has no declared permissions requiring user input.": "此扩展程序没有需要用户输入配置的已声明权限。",
+    "Disk is full. Search will no longer match in conversation bodies until you clear up space and restart.": "磁盘空间已满。在清理空间并重启之前，搜索将不再匹配对话正文内容。",
+    "Successfully imported project:": "已成功导入项目：",
+    "from AI Studio": "（来自 AI Studio）",
+    "This project uses Firebase. Do you want to download the Firebase skill?": "此项目使用了 Firebase。是否要下载 Firebase 技能？",
+    "Image rendering blocked (strict mode enabled)": "图片渲染已被拦截（已启用严格模式）",
+    "Alt text:": "替代文本：",
+    "Image URL:": "图片 URL：",
+    "Trajectory Stats": "轨迹统计",
+    "(Specific to this client's truncation and pagination)": "（仅针对当前客户端的截断与分页统计）",
+    "Step Type": "步骤类型",
+    "Count": "数量",
+    "Bytes": "字节数",
+    "Cleared Count": "已清理数量",
+    "• Aggregate cost across all subagents": "• 汇总所有子智能体的开销",
+    "• Includes nested subagent costs": "• 包含嵌套子智能体的开销",
+    "cumulative total for the conversation up to this point": "截至当前时刻此对话的累计总计",
+    "Text selection is paused for smoother viewing. Search, comments, and annotations still work. Use the toolbar text button when selection is needed.": "为保证流畅浏览已暂停文本选择，搜索、评论和批注功能仍可正常使用。如需选择文本，请点击工具栏上的文本按钮。",
+    "Dismiss text selection notice": "关闭文本选择提示",
+    "Select text in the PDF and click + Add to start commenting.": "在 PDF 中选中文本并点击“+ 添加”即可开始评论。",
+    "Comments unavailable at this screen size": "当前屏幕尺寸下无法显示评论",
+    "Open Mermaid diagram preview": "打开 Mermaid 图表预览",
+    "Failed to render math": "数学公式渲染失败",
+    "Failed to render diagram": "图表渲染失败",
+    "✓ Target set": "✓ 已设置目标",
+    "Available CEL field tokens and helpers": "可用的 CEL 字段令牌与辅助函数",
+    "Available CEL helper functions": "可用的 CEL 辅助函数",
+    "Match Condition (CEL)": "匹配条件 (CEL)",
+    "When it runs": "运行时机",
+    "Schedules and events.": "定时计划与事件触发。",
+    "Schedules only.": "仅定时计划。",
+    "Generating commit message...": "正在生成提交信息...",
+    "Committing...": "正在提交...",
+    "All changes since the branch point": "自当前分支起点以来的所有更改"
 };
 
   const coreWords = {
@@ -5319,6 +6033,38 @@ if (!isRemoteWindow) {
       .trim();
   }
 
+  const ENGLISH_MONTHS = {
+    january: 1, jan: 1,
+    february: 2, feb: 2,
+    march: 3, mar: 3,
+    april: 4, apr: 4,
+    may: 5,
+    june: 6, jun: 6,
+    july: 7, jul: 7,
+    august: 8, aug: 8,
+    september: 9, sep: 9, sept: 9,
+    october: 10, oct: 10,
+    november: 11, nov: 11,
+    december: 12, dec: 12,
+  };
+
+  function parseEnglishDateCn(rawDate) {
+    const m = String(rawDate || '').trim().match(/^([A-Za-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(\d{4}))?$/i);
+    if (!m) return null;
+    const month = ENGLISH_MONTHS[m[1].toLowerCase()];
+    const day = Number(m[2]);
+    if (!month || day < 1 || day > 31) return null;
+    const year = m[3];
+    return (year ? year + ' 年 ' : '') + month + ' 月 ' + day + ' 日';
+  }
+
+  const MODEL_LEAVING_SUBJECT_RE = /^(?:this model|(?:Gemini|Claude|GPT|Gemma|Veo|Imagen|Hydrogen|Helium|Lithium|Sonnet|Opus|Haiku|DeepSeek|Qwen|Llama|Mistral|o[134])(?:[\s._/-]|$))/i;
+
+  function formatLeavingSubjectCn(model) {
+    const m = String(model || '').trim();
+    if (!m || /^this model$/i.test(m)) return '此模型';
+    return m + ' ';
+  }
   // 历史半中半英残片自愈映射表（保持 dictionary 100% 纯净英文键的同时兼容旧版残片自愈）
   const SELF_HEAL_MAP = {
     'Replace With 新建': '替换为新建',
@@ -5371,6 +6117,23 @@ if (!isRemoteWindow) {
       .join('+');
   }
 
+  const SHORTCUT_SINGLE_KEY_RE = /^(?:Enter|Return|Esc|Escape|Tab|Space|Backspace|Delete|Del|Insert|Ins|Home|End|PageUp|PageDown|Up|Down|Left|Right|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Forward|Back|F(?:[1-9]|1\d|2[0-4])|[^\s])$/;
+  const SHORTCUT_MOD_CHORD_RE = /^(?:(?:Ctrl|Cmd|Command|Control|Alt|Opt|Option|Shift|Meta|Super|Win|Fn)\+)+[^\s+]+$/i;
+  const SHORTCUT_GLYPH_RE = /[⌘⌥⌃⇧⏎⌫⌦⇥⎋↑↓←→]/;
+
+  function isLikelyShortcutKeys(rawKeys) {
+    if (!rawKeys) return false;
+    const normalized = rawKeys.trim().replace(/\s*\+\s*/g, '+');
+    if (!normalized) return false;
+    const tokens = normalized.split(/\s+/);
+    if (tokens.length > 4) return false;
+    return tokens.every(tok =>
+      SHORTCUT_GLYPH_RE.test(tok) ||
+      SHORTCUT_MOD_CHORD_RE.test(tok) ||
+      SHORTCUT_SINGLE_KEY_RE.test(tok)
+    );
+  }
+
   function translateString(text) {
     if (!text || typeof text !== 'string') return text;
     const trimmed = text.trim();
@@ -5414,6 +6177,20 @@ if (!isRemoteWindow) {
     }
 
     // 4. 动态正则匹配管线（全部标准原生正则字面量，命中统一写入 stringCache）
+
+    const shortcutMatch = trimmed.match(/^(Add shortcut|Remove shortcut|Shortcut)(?:\s+(?!for(?:\s|$))(.{1,45}?))?\s+for\s+(.{1,140})$/);
+    if (shortcutMatch) {
+      const [, operation, keys, action] = shortcutMatch;
+      const actionTrimmed = action.trim();
+      const validKeys = !keys || isLikelyShortcutKeys(keys);
+      if (validKeys && actionTrimmed && !/(?:^|[^.])\.$|[?!]$/.test(actionTrimmed)) {
+        const labels = { 'Add shortcut': '添加快捷键', 'Remove shortcut': '移除快捷键', Shortcut: '快捷键' };
+        const keyPart = keys ? ' ' + keys.trim() : '';
+        const fixed = `${labels[operation]}${keyPart}（${translateString(actionTrimmed)}）`;
+        cacheSet(trimmed, fixed);
+        return replaceTrimmed(text, trimmed, fixed);
+      }
+    }
 
     // ===== 首页问候语（3 组模板 × 有/无用户名） =====
     if (/^(?:Hey|Welcome back|Good to see you)/i.test(trimmed)) {
@@ -5464,8 +6241,8 @@ if (!isRemoteWindow) {
       return replaceTrimmed(text, trimmed, fixed);
     }
 
-    if (/^(?:(.+?)\s+)?will be removed(?:\s+from Antigravity)?\s+on\s+(.+?)\.?$/i.test(trimmed)) {
-      const fixed = trimmed.replace(/^(?:(.+?)\s+)?will be removed(\s+from Antigravity)?\s+on\s+(.+?)\.?$/i, (_m, model, fromAgy, d) => {
+    if (/^(?:((?:(?![.!?]\s).)+?)\s+)?will be removed(?:\s+from Antigravity)?\s+on\s+(.+?)\.?$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(?:((?:(?![.!?]\s).)+?)\s+)?will be removed(\s+from Antigravity)?\s+on\s+(.+?)\.?$/i, (_m, model, fromAgy, d) => {
         const months = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
         const cn = (d || '').replace(/^([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})$/, (_mm, mon, day, year) => {
           const idx = months[mon.toLowerCase()];
@@ -5561,6 +6338,88 @@ if (!isRemoteWindow) {
       return replaceTrimmed(text, trimmed, fixed);
     }
 
+    // ===== 配额用尽 / 重置切换模型提示（覆盖官方全部变体，兼容 this model 与动态时间戳） =====
+    const modelQuotaExhaustedMatch = trimmed.match(/^Your quota for\s+(.+?)\s+(will reset on\s+(.+?)|has been reached)\.\s*Switch to another available model to continue\.?$/i);
+    if (modelQuotaExhaustedMatch) {
+      const [, rawModel, statusPart, resetAt] = modelQuotaExhaustedMatch;
+      const modelText = rawModel.trim();
+      const subj = /^this model$/i.test(modelText) ? '此模型' : (modelText + ' ');
+      const fixed = resetAt
+        ? `${subj}的配额将于 ${resetAt.trim()} 重置。请切换至其他可用模型以继续。`
+        : `${subj}的配额已用尽。请切换至其他可用模型以继续。`;
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    // ===== AI 点数不足 / 基础配额刷新 / 超额启用提示（覆盖官方全部 3 段动态组合，兼容 at least N / more / this model） =====
+    if (/^(?:You need (?:at least \d+(?:,\d+)*|more) AI Credits to send messages\.|Your plan['’]s baseline quota will refresh on |To continue using this model now,\s*enable AI Credit overages\.?)/i.test(trimmed)) {
+      let rest = trimmed;
+      let needPart = '';
+      let refreshPart = '';
+      let overagePart = '';
+
+      const needMatch = rest.match(/^You need (?:at least\s+(\d+(?:,\d+)*)|more)\s+AI Credits to send messages\.\s*To continue using\s+(.+?)\s+now,\s*purchase more AI Credits\.?(?:\s+|$)/i);
+      if (needMatch) {
+        const [, credits, rawModel] = needMatch;
+        const modelText = rawModel.trim();
+        const continueClause = /^this model$/i.test(modelText)
+          ? '若要立即继续使用此模型，请购买更多 AI 点数。'
+          : `若要立即继续使用 ${modelText}，请购买更多 AI 点数。`;
+        const needPrefix = credits ? `发送消息至少需要 ${credits} 个 AI 点数。` : '发送消息需要更多 AI 点数。';
+        needPart = needPrefix + continueClause;
+        rest = rest.slice(needMatch[0].length).trim();
+      }
+
+      const overageMatch = rest.match(/(?:^|\s+)To continue using this model now,\s*enable AI Credit overages\.?$/i);
+      if (overageMatch) {
+        overagePart = '若要立即继续使用此模型，请开启 AI 点数超额使用。';
+        rest = rest.slice(0, rest.length - overageMatch[0].length).trim();
+      }
+
+      if (rest) {
+        const refreshMatch = rest.match(/^Your plan['’]s baseline quota will refresh on\s+(.+?)\.?$/i);
+        if (refreshMatch) {
+          refreshPart = `您当前方案的基础配额将于 ${refreshMatch[1].trim()} 刷新。`;
+          rest = '';
+        }
+      }
+
+      const combined = needPart + refreshPart + overagePart;
+      if (combined && !rest) {
+        cacheSet(trimmed, combined);
+        return replaceTrimmed(text, trimmed, combined);
+      }
+    }
+
+    // ===== Hydrogen 模型推荐提示（兼容动态下线日期与合法英文日期强校验） =====
+    const hydrogenTooltipMatch = trimmed.match(/^Use Hydrogen for better quality with lower quota usage\.(?:\s+(.+))?$/i);
+    if (hydrogenTooltipMatch) {
+      const [, trailingText = ''] = hydrogenTooltipMatch;
+      const leavingMatch = trailingText.match(/^(?:(.+?)\s+)?(?:is\s+)?leaving on\s+(.+?)\.?$/i);
+      let fixed = '使用 Hydrogen 可获得更好的质量，同时消耗更少配额。';
+      const leavingDateCn = leavingMatch ? parseEnglishDateCn(leavingMatch[2]) : null;
+      if (leavingMatch && leavingDateCn) {
+        fixed += formatLeavingSubjectCn(leavingMatch[1]) + '将于 ' + leavingDateCn + ' 下线。';
+      } else if (trailingText) {
+        fixed += translateString(trailingText);
+      }
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    // ===== 模型下线日期提示（严格要求合法英文月日日期 + 已知模型/this model 约束，杜绝误伤自然英文句子） =====
+    const modelLeavingMatch = trimmed.match(/^(?:(.+?)\s+)?(?:is\s+)?leaving on\s+(.+?)\.?$/i);
+    if (modelLeavingMatch) {
+      const [, rawModel, rawDate] = modelLeavingMatch;
+      const dateCn = parseEnglishDateCn(rawDate);
+      const modelTrimmed = (rawModel || '').trim();
+      const subjectOk = !modelTrimmed || (modelTrimmed.length <= 64 && MODEL_LEAVING_SUBJECT_RE.test(modelTrimmed));
+      if (dateCn && subjectOk) {
+        const fixed = formatLeavingSubjectCn(modelTrimmed) + '将于 ' + dateCn + ' 下线。';
+        cacheSet(trimmed, fixed);
+        return replaceTrimmed(text, trimmed, fixed);
+      }
+    }
     if (/^Available AI Credits:\s*(.+)$/i.test(trimmed)) {
       const fixed = trimmed.replace(/^Available AI Credits:\s*(.+)$/i, (_m, n) => '可用 AI 点数：' + n);
       cacheSet(trimmed, fixed);
@@ -5622,6 +6481,19 @@ if (!isRemoteWindow) {
       const fixed = trimmed.replace(/^Ask(?:\s+|\s*\/\s*)btw(?:\s+((?:Ctrl|Cmd)(?:\+[a-zA-Z0-9]+)+))?$/i, (_m, shortcut) => {
         return shortcut ? ('通过 /btw 提问 ' + formatShortcut(shortcut)) : '通过 /btw 提问';
       });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    // ===== 输入框发送按钮快捷键悬浮提示（Send Message / Queue Message / Send Immediately + Enter/Ctrl+Enter/⌘⏎/⌥⏎） =====
+    const sendTooltipMatch = trimmed.match(/^(Send Message|Queue Message|Send Immediately)\s+(\(?(?:(?:Ctrl|Cmd|Alt|Shift|Option|Meta)\+)*Enter\)?|\(?[⌘⌥⌃⇧]*[⏎↵]\)?)$/i);
+    if (sendTooltipMatch) {
+      const sendActionMap = {
+        'send message': '发送消息',
+        'queue message': '排队发送消息',
+        'send immediately': '立即发送',
+      };
+      const fixed = sendActionMap[sendTooltipMatch[1].toLowerCase()] + ' ' + sendTooltipMatch[2];
       cacheSet(trimmed, fixed);
       return replaceTrimmed(text, trimmed, fixed);
     }
@@ -5785,10 +6657,10 @@ if (!isRemoteWindow) {
       return replaceTrimmed(text, trimmed, fixed);
     }
 
-    if (/^(Low|Medium|High|Extra|Max)\s*·\s*(.+)$/i.test(trimmed)) {
-      const fixed = trimmed.replace(/^(Low|Medium|High|Extra|Max)\s*·\s*(.+)$/i, (_m, tier, ctx) => {
-        const tierMap = { low: '低', medium: '中', high: '高', xhigh: '极高', extra: '极高', max: '最高' };
-        return (tierMap[tier.toLowerCase()] || tier) + ' · ' + ctx;
+    if (/^(Low|Medium|High|Extra\s+High|Extra|Max)\s*·\s*(.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(Low|Medium|High|Extra\s+High|Extra|Max)\s*·\s*(.+)$/i, (_m, tier, ctx) => {
+        const tierMap = { low: '低', medium: '中', high: '高', xhigh: '极高', 'extra high': '极高', extra: '极高', max: '最高' };
+        return (tierMap[tier.trim().toLowerCase()] || tier) + ' · ' + ctx;
       });
       cacheSet(trimmed, fixed);
       return replaceTrimmed(text, trimmed, fixed);
@@ -5891,8 +6763,37 @@ if (!isRemoteWindow) {
     }
 
     // ===== 侧边栏、分支、浏览器与 Hooks 动态短语 =====
+    if (/^Compacting\s*·\s*(.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Compacting\s*·\s*(.+)$/i, (_m, dur) => '正在压缩上下文 · ' + dur);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Model unavailable,\s*retrying(?:\s+in\s+(\d+s))?(?:\s*\(attempt\s+(\d+)\/(\d+)\))?$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Model unavailable,\s*retrying(?:\s+in\s+(\d+s))?(?:\s*\(attempt\s+(\d+)\/(\d+)\))?$/i,
+        (_m, waitSec, cur, max) => {
+          const base = waitSec ? ('模型暂不可用，将在 ' + waitSec + ' 后重试') : '模型暂不可用，正在重试';
+          return (cur && max) ? (base + '（第 ' + cur + '/' + max + ' 次尝试）') : base;
+        }
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Using browser\s*\((\d+s)\)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Using browser\s*\((\d+s)\)$/i, '正在使用浏览器 ($1)');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
     if (/^Using browser\s*·\s*(.+)$/i.test(trimmed)) {
-      const fixed = trimmed.replace(/^Using browser\s*·\s*(.+)$/i, (_m, target) => '正在使用浏览器 · ' + target);
+      const fixed = trimmed.replace(/^Using browser\s*·\s*(.+)$/i, (_m, target) => {
+        const t = target
+          .replace(/^Thinking\s*\((\d+s)\)[.…]*$/i, '思考中 ($1)…')
+          .replace(/^Thinking[.…]*$/i, '思考中…');
+        return '正在使用浏览器 · ' + t;
+      });
       cacheSet(trimmed, fixed);
       return replaceTrimmed(text, trimmed, fixed);
     }
@@ -6364,6 +7265,31 @@ if (!isRemoteWindow) {
 
     if (/^Opens external link:\s*(.+)$/i.test(trimmed)) {
       const fixed = trimmed.replace(/^Opens external link:\s*(.+)$/i, (_m, u) => '打开外部链接: ' + u);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    const cloudSignInsMatch = trimmed.match(
+      /^Sign-ins to (.+?) are kept in the cloud with your account\.?(?:\s+(Other credentials stay on this machine\.?))?(?:\s+(Credentials are only sent to the domains listed\.?))?$/i
+    );
+    if (cloudSignInsMatch) {
+      let fixed = '登录到 ' + cloudSignInsMatch[1] + ' 的凭据将随你的账户保存在云端。';
+      if (cloudSignInsMatch[2]) fixed += '其他凭据仅保存在本机。';
+      if (cloudSignInsMatch[3]) fixed += '凭据只会发送到下方列出的域名。';
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    const siteDataClearedMatch = trimmed.match(/^Site data cleared for (.+?)\.?$/i);
+    if (siteDataClearedMatch) {
+      const fixed = '已清除 ' + siteDataClearedMatch[1] + ' 的站点数据。';
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    const clearSiteDataFailedMatch = trimmed.match(/^Could not clear site data for (.+?)\.?$/i);
+    if (clearSiteDataFailedMatch) {
+      const fixed = '无法清除 ' + clearSiteDataFailedMatch[1] + ' 的站点数据。';
       cacheSet(trimmed, fixed);
       return replaceTrimmed(text, trimmed, fixed);
     }
@@ -6864,6 +7790,12 @@ if (!isRemoteWindow) {
         if (/^Conflicts with "(.+)" \(managed by application menu\)$/i.test(part)) {
           return part.replace(/^Conflicts with "(.+)" \(managed by application menu\)$/i, '与“$1”冲突（由应用程序菜单管理）');
         }
+        if (/^Conflicts with "(.+)" \(reserved for sidebar switching\)$/i.test(part)) {
+          return part.replace(/^Conflicts with "(.+)" \(reserved for sidebar switching\)$/i, '与“$1”冲突（保留用于侧栏切换）');
+        }
+        if (/^Conflicts with "(.+)" \((.+)\)$/i.test(part)) {
+          return part.replace(/^Conflicts with "(.+)" \((.+)\)$/i, '与“$1”冲突（$2）');
+        }
         if (/^Conflicts with "(.+)"$/i.test(part)) {
           return part.replace(/^Conflicts with "(.+)"$/i, '与“$1”冲突');
         }
@@ -7006,8 +7938,8 @@ if (!isRemoteWindow) {
       return replaceTrimmed(text, trimmed, fixed);
     }
 
-    if (/^Connecting to\s+(.+?)[.…]*$/i.test(trimmed)) {
-      const fixed = trimmed.replace(/^Connecting to\s+(.+?)[.…]*$/i, '正在连接到 $1…');
+    if (/^Connecting to\s+(?!the\s+live\s+preview)(.+?)[.…]*$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Connecting to\s+(?!the\s+live\s+preview)(.+?)[.…]*$/i, '正在连接到 $1…');
       cacheSet(trimmed, fixed);
       return replaceTrimmed(text, trimmed, fixed);
     }
@@ -7070,6 +8002,988 @@ if (!isRemoteWindow) {
       return replaceTrimmed(text, trimmed, fixed);
     }
 
+    // ===== 智能体权限作用域提示：<项目名> setting / Your Remote setting / Your This Computer setting =====
+    if (/^(.{1,60}) setting$/.test(trimmed)) {
+      const scopeKey = trimmed.slice(0, -8).trim();
+      // 停用常见英文设置词，并为英文长句设置首词/大小写守卫，同时兼容 my-app 等小写项目文件夹名
+      const scopeCommon = /^(?:proxy|system|display|environment|network|keyboard|editor|terminal|audio|video|browser|privacy|appearance|notification|account|billing|search|default|project|security|session|cookie|user|local|global|custom|theme|font|language|timezone|timeout|color|tab|spacing|indent|scale|cursor|permissions?|this|that|your|my|our|their|his|her|its|the|an?|some|any|each|every|one|same|other|new|old|current|previous|next|first|last)s?$/i;
+      const scopeProseStarter = /^(?:configure|enable|disable|change|update|reset|set|use|keep|edit|select|choose|check|override|follow|apply|increase|decrease|adjust|modify|save|clear|delete|remove|find|see|try|need|want|make|too|no|not|all|any|some|each|every|your|this|that|the|an?|our|their|his|her|its)\b/i;
+      let scopeCn = '';
+      if (scopeKey === 'Your This Computer') {
+        scopeCn = '沿用你在「本机」的设置';
+      } else if (scopeKey === 'Your Remote') {
+        scopeCn = '沿用你在「远程」的设置';
+      } else if (scopeKey && !scopeCommon.test(scopeKey)) {
+        const hasCjk = /[\u4e00-\u9fa5]/.test(scopeKey);
+        const isSingleToken = !/\s/.test(scopeKey);
+        const isSlugOrScoped = isSingleToken && (/^[A-Z]/.test(scopeKey) || /[-_.\d]/.test(scopeKey));
+        const isTitlePhrase = /\s/.test(scopeKey)
+          && !scopeProseStarter.test(scopeKey)
+          && scopeKey.split(/\s+/).every(tok => /^[A-Z0-9]/.test(tok) || /^(?:of|for|and|in|on|to|v\d+)$/i.test(tok));
+        if (hasCjk || isSlugOrScoped || isTitlePhrase) {
+          scopeCn = '沿用「' + scopeKey + '」的设置';
+        }
+      }
+      if (scopeCn) {
+        cacheSet(trimmed, scopeCn);
+        return replaceTrimmed(text, trimmed, scopeCn);
+      }
+    }
+
+    // ===== 语音通话浮层：语速提示 / 静音 tooltip / 结束按钮 =====
+    if (/^Voice speed, (.+)$/.test(trimmed)) {
+      const speedCn = '语速，' + trimmed.replace(/^Voice speed, /, '');
+      cacheSet(trimmed, speedCn);
+      return replaceTrimmed(text, trimmed, speedCn);
+    }
+
+    if (/^(Unmute|Mute) (mic|Antigravity|Jetski) \(([^)]+)\)$/.test(trimmed)) {
+      const muteMatch = trimmed.match(/^(Unmute|Mute) (mic|Antigravity|Jetski) \(([^)]+)\)$/);
+      const muteTarget = muteMatch[2] === 'mic' ? '麦克风' : muteMatch[2];
+      const muteCn = (muteMatch[1] === 'Mute' ? '静音' : '取消静音')
+        + (muteTarget === '麦克风' ? '' : ' ')
+        + muteTarget + ' (' + muteMatch[3] + ')';
+      cacheSet(trimmed, muteCn);
+      return replaceTrimmed(text, trimmed, muteCn);
+    }
+
+    // 通话栏结束按钮：只匹配首字母大写的独立 "End"，避免 lowerDictionary 误伤正文里的 end
+    if (trimmed === 'End') {
+      cacheSet(trimmed, '结束');
+      return replaceTrimmed(text, trimmed, '结束');
+    }
+
+    // ===== 删除确认弹窗：资源名以 <strong> 插值，句子被拆成「前缀 + 名称 + 后缀」 =====
+    // 前缀（Are you sure you want to delete / ... the）词典已收录，这里只补后缀片段
+    if (/^\? This action cannot be undone\.$/.test(trimmed)) {
+      cacheSet(trimmed, '吗？此操作无法撤销。');
+      return replaceTrimmed(text, trimmed, '吗？此操作无法撤销。');
+    }
+    // ===== 归档提示：markdown 里的行内图标把句子切成「前缀 + 图标 + 后缀」 =====
+    if (/^View archived in the sidebar \($/.test(trimmed)) {
+      cacheSet(trimmed, '已归档内容可在侧边栏（');
+      return replaceTrimmed(text, trimmed, '已归档内容可在侧边栏（');
+    }
+
+    if (/^menu\)\.$/.test(trimmed)) {
+      cacheSet(trimmed, '菜单）中查看。');
+      return replaceTrimmed(text, trimmed, '菜单）中查看。');
+    }
+
+    if (/^Customize Sidebar\)\.$/.test(trimmed)) {
+      cacheSet(trimmed, '自定义侧边栏）中查看。');
+      return replaceTrimmed(text, trimmed, '自定义侧边栏）中查看。');
+    }
+
+    // ===== Antigravity v2.34.0 动态规则：遥测说明 / Computer Use 权限与预览 / 内联卡片 / 分页 / 侧栏与倒计时 =====
+    if (/^Telemetry is turned off for your account\.\s+This means\s+(.+?)\s+does not collect any of your prompts,\s*content,\s*or model responses,\s*but will still collect general usage patterns\s*\(e\.g\.,\s*feature adoption,\s*active user counts\)\.?$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Telemetry is turned off for your account\.\s+This means\s+(.+?)\s+does not collect any of your prompts,\s*content,\s*or model responses,\s*but will still collect general usage patterns\s*\(e\.g\.,\s*feature adoption,\s*active user counts\)\.?$/i,
+        '您的账号已关闭遥测功能。这意味着 $1 不会收集您的任何提示词、内容或模型回复，但仍会收集常规使用模式（例如功能采用率、活跃用户数）。'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(Open |Reopen )?(Accessibility|Screen Recording) settings$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^(Open |Reopen )?(Accessibility|Screen Recording) settings$/i,
+        (_m, act, perm) => {
+          const actCn = act ? (/^Reopen/i.test(act) ? '重新打开' : '打开') : '';
+          const permCn = /^Accessibility$/i.test(perm) ? '辅助功能' : '屏幕录制';
+          return actCn + permCn + '设置';
+        }
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(.+?) needs (Accessibility|Screen Recording|both) to use your computer\.$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^(.+?) needs (Accessibility|Screen Recording|both) to use your computer\.$/i,
+        (_m, app, perm) => {
+          const permCn = /^both$/i.test(perm) ? '辅助功能和屏幕录制权限' : (/^Accessibility$/i.test(perm) ? '辅助功能权限' : '屏幕录制权限');
+          return app + ' 需要' + permCn + '才能控制您的电脑。';
+        }
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Relaunch (.+?) to finish Screen Recording\.$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Relaunch (.+?) to finish Screen Recording\.$/i, '重启 $1 以完成屏幕录制权限配置。');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+agents?\s+working,\s*live preview unavailable$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+agents?\s+working,\s*live preview unavailable$/i, '$1 个智能体正在工作，实时预览不可用');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Live preview unavailable\s*·\s*(.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Live preview unavailable\s*·\s*(.+)$/i, (_m, detail) => {
+        const detailCn = detail === 'not installed' ? '未安装' : detail;
+        return '实时预览不可用 · ' + detailCn;
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Please retry:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Please retry:\s*(.+)$/, '请重试：$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Sent response:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Sent response:\s*(.+)$/, '已发送回复：$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Skipped:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Skipped:\s*(.+)$/, '已跳过：$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Skipped\s+(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Skipped\s+(.+)$/, '已跳过：$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Open Subagent:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Open Subagent:\s*(.+)$/, '打开子智能体：$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(Pin Entire|Unpin) (Workspace|Project|Repo)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(Pin Entire|Unpin) (Workspace|Project|Repo)$/i, (_m, act, target) => {
+        const actCn = /^Unpin/i.test(act) ? '取消置顶' : '置顶整个';
+        const targetCn = /^Workspace$/i.test(target) ? '工作区' : (/^Project$/i.test(target) ? '项目' : '代码库');
+        return actCn + targetCn;
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Opens the New Conversation screen for this (workspace|project)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Opens the New Conversation screen for this (workspace|project)$/i,
+        (_m, t) => '为此' + (/^workspace$/i.test(t) ? '工作区' : '项目') + '打开新建对话界面'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^No messages in last (\d+) steps\s*(?:—|,|·)\s*(load older|Load more)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^No messages in last (\d+) steps\s*(—|,|·)\s*(load older|Load more)$/i, (_m, n, _sep, tail) => {
+        if (/Load more/i.test(tail)) return '最近 ' + n + ' 步中无消息 · 加载更多';
+        if (trimmed.includes(',')) return '最近 ' + n + ' 步中无消息，加载更早内容';
+        return '最近 ' + n + ' 步中无消息 — 加载更早内容';
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^No visible messages in last (\d+) steps\. Activate Load older messages to continue\.$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^No visible messages in last (\d+) steps\. Activate Load older messages to continue\.$/i,
+        '最近 $1 步中没有可见消息，激活“加载更早的消息”以继续。'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(.+),\s*showing (\d+) of (\d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(.+),\s*showing (\d+) of (\d+)$/i, (_m, prefix, shown, total) => {
+        const prefixCn = lowerDictionary.get(prefix.toLowerCase()) || prefix;
+        return prefixCn + '，已显示 ' + shown + ' / ' + total + ' 条';
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Select Sidebar Item (\d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Select Sidebar Item (\d+)$/i, '选择侧边栏第 $1 项');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(UI Plugin|Automation) (\d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(UI Plugin|Automation) (\d+)$/i, (_m, kind, n) => {
+        return (/^UI Plugin$/i.test(kind) ? 'UI 插件 ' : '自动化 ') + n;
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^More options for (.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^More options for (.+)$/, '$1 的更多选项');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Open image (\d+) of (\d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Open image (\d+) of (\d+)$/i, '打开第 $1 张图片（共 $2 张）');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Image (\d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Image (\d+)$/i, '图片 $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Show (\d+) More$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Show (\d+) More$/i, '显示其余 $1 项');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(.+) \(experimental\)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(.+) \(experimental\)$/i, '$1（实验性）');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Line (\d+) → (\d+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Line (\d+) → (\d+)$/, '第 $1 → $2 行');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(?:(\d+)s left|(?:(\d+)d\s+)?(?:(\d+)h\s+)?(\d+)m left|(\d+)h left)$/.test(trimmed)) {
+      const mLeft = trimmed.match(/^(?:(\d+)s left|(?:(\d+)d\s+)?(?:(\d+)h\s+)?(\d+)m left|(\d+)h left)$/);
+      let leftCn = trimmed;
+      if (mLeft[1] !== undefined) {
+        leftCn = '剩余 ' + mLeft[1] + ' 秒';
+      } else if (mLeft[5] !== undefined) {
+        leftCn = '剩余 ' + mLeft[5] + ' 小时';
+      } else {
+        const parts = [];
+        if (mLeft[2] !== undefined) parts.push(mLeft[2] + ' 天');
+        if (mLeft[3] !== undefined) parts.push(mLeft[3] + ' 小时');
+        if (mLeft[4] !== undefined) parts.push(mLeft[4] + ' 分钟');
+        leftCn = '剩余 ' + parts.join(' ');
+      }
+      cacheSet(trimmed, leftCn);
+      return replaceTrimmed(text, trimmed, leftCn);
+    }
+
+    if (/^(.+?) \(opens in (external browser|a new tab)\)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(.+?) \(opens in (external browser|a new tab)\)$/i, (_m, prefix, kind) => {
+        return prefix + (/external/i.test(kind) ? '（在外部浏览器中打开）' : '（在新标签页中打开）');
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+    // ===== 快捷键录制区无障碍标签：Recording shortcut for <action>... =====
+    if (/^Recording shortcut for (.+)\. Press keys to bind, Enter to save, Escape to cancel\.$/.test(trimmed)) {
+      const recCn = trimmed.replace(/^Recording shortcut for (.+)\. Press keys to bind, Enter to save, Escape to cancel\.$/, (_m, act) => '正在为 ' + act + ' 录制快捷键。按下按键绑定，Enter 保存，Escape 取消。');
+      cacheSet(trimmed, recCn);
+      return replaceTrimmed(text, trimmed, recCn);
+    }
+
+    // ===== 项目外对话设置的描述：Settings for conversations outside of <projects> =====
+    if (/^Settings for conversations outside of (.+)\.$/.test(trimmed)) {
+      const nounMap = { projects: '项目', workspaces: '工作区', folders: '文件夹', conversations: '对话' };
+      const outsideCn = trimmed.replace(/^Settings for conversations outside of (.+)\.$/, (_m, noun) => {
+        const cn = nounMap[String(noun).trim().toLowerCase()] || noun;
+        return cn + '之外对话的设置。';
+      });
+      cacheSet(trimmed, outsideCn);
+      return replaceTrimmed(text, trimmed, outsideCn);
+    }
+
+    if (/^Agent settings and permissions for conversations outside of (.+)\.$/.test(trimmed)) {
+      const nounMap2 = { projects: '项目', workspaces: '工作区', folders: '文件夹', conversations: '对话' };
+      const permCn = trimmed.replace(/^Agent settings and permissions for conversations outside of (.+)\.$/, (_m, noun) => {
+        const cn = nounMap2[String(noun).trim().toLowerCase()] || noun;
+        return cn + '之外对话的智能体设置与权限。';
+      });
+      cacheSet(trimmed, permCn);
+      return replaceTrimmed(text, trimmed, permCn);
+    }
+
+    // ===== Issue #68：终端高危命令/跨区删除/运行时权限审批选项与标题模板 =====
+    if (/^Yes,\s+allow downloads from (.+?) for this run$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+allow downloads from (.+?) for this run$/i, '是，本次运行允许从 $1 下载');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Yes,\s+save rule for (.+?) in this conversation$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+save rule for (.+?) in this conversation$/i, '是，在当前对话中为 $1 保存规则');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Yes,\s+allow downloads from (.+?) in this conversation$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+allow downloads from (.+?) in this conversation$/i, '是，在当前对话中允许从 $1 下载');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Yes,\s+and always allow (.+?) in this conversation$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+and always allow (.+?) in this conversation$/i, '是，并在当前对话中始终允许 $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Yes,\s+allow (.+?) in this conversation$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+allow (.+?) in this conversation$/i, '是，在当前对话中允许 $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Yes,\s+save rule for (.+?) globally$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+save rule for (.+?) globally$/i, '是，全局保存 $1 的规则');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Yes,\s+always allow downloads from (.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+always allow downloads from (.+)$/i, '是，始终允许从 $1 下载');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Yes,\s+always allow (.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+always allow (.+)$/i, '是，始终允许 $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Yes,\s+and always allow (.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Yes,\s+and always allow (.+)$/i, '是，并始终允许 $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Conflicts with your configured Ask permission:\s*(.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Conflicts with your configured Ask permission:\s*(.+)$/i, '与您配置的询问权限冲突：$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Requires manual confirmation:\s*(.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Requires manual confirmation:\s*(.+)$/i, '需要人工确认：$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(?:Save rule to always allow|Allow)\s+([^?\r\n]{2,140})\?$/i.test(trimmed)) {
+      const permActionMap = {
+        'read access to this path': '读取此路径',
+        'write access to this path': '写入此路径',
+        'reading this url': '读取此 URL',
+        'executing actions on this url': '在此 URL 上执行操作',
+        'browser downloads from this site': '浏览器从此站点下载文件',
+        'running this command': '运行此命令',
+        'running this command outside the sandbox': '在沙盒外运行此命令',
+        'using this mcp tool': '使用此 MCP 工具',
+        'a one-time administrator (uac) elevation': '一次性管理员 (UAC) 提权',
+        'access to this resource': '访问此资源',
+        'the browser agent to download a file': '浏览器智能体下载文件',
+      };
+      const fixed = trimmed.replace(
+        /^(Save rule to always allow|Allow)\s+([^?\r\n]{2,140})\?$/i,
+        (_m, prefix, act) => {
+          const actCn = permActionMap[act.trim().toLowerCase()];
+          if (/^Save rule/i.test(prefix)) {
+            return actCn ? '保存规则以始终允许' + actCn + '？' : '保存规则以始终允许 ' + act + '？';
+          }
+          return actCn ? '是否允许' + actCn + '？' : '是否允许 ' + act + '？';
+        }
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Recursively\s+deleting\s+the\s+pre-existing\s+directory\s+(.+?)\s+permanently\s+destroys\s+files\s+outside\s+the\s+workspace\s+that\s+cannot\s+be\s+locally\s+recovered\.?$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Recursively\s+deleting\s+the\s+pre-existing\s+directory\s+(.+?)\s+permanently\s+destroys\s+files\s+outside\s+the\s+workspace\s+that\s+cannot\s+be\s+locally\s+recovered\.?$/i,
+        '递归删除已有目录 $1 将永久销毁工作区外且无法在本地恢复的文件。'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Requesting permission to (access|execute|run|read|write|edit|modify|delete|use|download)\s+(.+)$/i.test(trimmed)) {
+      const verbMap = {
+        access: '访问', execute: '执行', run: '运行', read: '读取',
+        write: '写入', edit: '编辑', modify: '修改', delete: '删除',
+        use: '使用', download: '下载',
+      };
+      const fixed = trimmed.replace(
+        /^Requesting permission to (access|execute|run|read|write|edit|modify|delete|use|download)\s+(.+)$/i,
+        (_m, verb, target) => '正在请求' + (verbMap[verb.toLowerCase()] || verb) + '权限：' + target
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    // ===== Swarm 多智能体协作面板动态模板 (plugin:// sidecar UI) =====
+    if (/^(\d+)\s+of\s+(\d+)\s+tasks?\s+done$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+of\s+(\d+)\s+tasks?\s+done$/i, '$1 / $2 项任务已完成');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+of\s+(\d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+of\s+(\d+)$/i, '$1 / $2');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+threads?\s+open$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+threads?\s+open$/i, '$1 个线程进行中');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+waiting\s+on\s+@([A-Za-z0-9_.-]+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+waiting\s+on\s+@([A-Za-z0-9_.-]+)$/, '$1 项正在等待 @$2');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+(stuck|needs?\s+you|in\s+review|active)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+(stuck|needs?\s+you|in\s+review|active)$/i, (_m, n, kind) => {
+        const lk = kind.toLowerCase();
+        if (lk === 'stuck') return n + ' 项卡住';
+        if (lk.startsWith('need')) return n + ' 项需要你处理';
+        if (lk === 'in review') return n + ' 项审核中';
+        return n + ' 项活跃';
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Up\s+next\s+·\s+(\d+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Up\s+next\s+·\s+(\d+)$/, '接下来 · $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^\+(\d+)\s+more$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^\+(\d+)\s+more$/i, '还有 +$1 项');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Waiting\s+on\s+@([A-Za-z0-9_.-]+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Waiting\s+on\s+@([A-Za-z0-9_.-]+)$/, '等待 @$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Waiting\s+on\s+(\d+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Waiting\s+on\s+(\d+)$/, '等待 $1 位成员');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Working\s+for\s+@([A-Za-z0-9_.-]+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Working\s+for\s+@([A-Za-z0-9_.-]+)$/, '正在为 @$1 处理');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+posts?\s+over\s+(.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+posts?\s+over\s+(.+)$/i, (_m, n, dur) => n + ' 条动态 · 历时 ' + formatDurationCn(dur));
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+posts?\s+since\s+the\s+view\s+was\s+updated$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+posts?\s+since\s+the\s+view\s+was\s+updated$/i, '自视图上次更新以来新增了 $1 条动态');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+posts?$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+posts?$/i, '$1 条动态');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^last\s+seen\s+(\d+)([mhd])\s+ago$/i.test(trimmed)) {
+      const unitMap = { m: '分钟', h: '小时', d: '天' };
+      const fixed = trimmed.replace(/^last\s+seen\s+(\d+)([mhd])\s+ago$/i, (_m, n, u) => '最近活跃于 ' + n + ' ' + unitMap[u.toLowerCase()] + '前');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Runs\s+on\s+(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Runs\s+on\s+(.+)$/, '运行于 $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Open\s+@([A-Za-z0-9_.-]+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Open\s+@([A-Za-z0-9_.-]+)$/, '打开 @$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Go\s+to\s+#(\d+)\s+on\s+the\s+Board$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Go\s+to\s+#(\d+)\s+on\s+the\s+Board$/, '跳转到看板 #$1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Posted\s+in\s+#([A-Za-z0-9_.-]+);\s+click\s+to\s+show\s+only\s+#([A-Za-z0-9_.-]+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Posted\s+in\s+#([A-Za-z0-9_.-]+);\s+click\s+to\s+show\s+only\s+#([A-Za-z0-9_.-]+)$/, '发布于 #$1；点击仅查看 #$2');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Exporting\s+(\d+)%$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Exporting\s+(\d+)%$/, '正在导出 $1%');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Exported\s+(.+?)\s+\((.+)\)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Exported\s+(.+?)\s+\((.+)\)$/, '已导出 $1（$2）');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^GIF\s+ready\s+\((.+)\)\s+—\s+right-click\s+image\s+to\s+save\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^GIF\s+ready\s+\((.+)\)\s+—\s+right-click\s+image\s+to\s+save\.$/, 'GIF 已就绪（$1）— 右键图片即可保存。');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Rendering\s+(.+?)…$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Rendering\s+(.+?)…$/, '正在渲染 $1…');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Download\s+(.+\.gif)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^Download\s+(.+\.gif)$/i, '下载 $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+)\s+frames?\s+·\s+(.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+)\s+frames?\s+·\s+(.+)$/i, '$1 帧 · $2');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Narrator\s+read\s+up\s+to\s+#(\d+)\s+of\s+(\d+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Narrator\s+read\s+up\s+to\s+#(\d+)\s+of\s+(\d+)$/, '旁白已阅读至 #$1 / $2');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^overview\s+·\s+from\s+the\s+narrator['’]s\s+notes\s+·\s+(.+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(/^overview\s+·\s+from\s+the\s+narrator['’]s\s+notes\s+·\s+(.+)$/i, '概览 · 来自旁白笔记 · $1');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Opening\s+(.+?)'s\s+conversation\s+needs\s+the\s+app\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Opening\s+(.+?)'s\s+conversation\s+needs\s+the\s+app\.$/, '打开 $1 的对话需要在客户端内操作。');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(.+?)\s+runs\s+on\s+(.+?);\s+open\s+it\s+there\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^(.+?)\s+runs\s+on\s+(.+?);\s+open\s+it\s+there\.$/, '$1 运行在 $2 上，请在对应设备打开。');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Now\s+·\s+(\d+)\s+\/\s+(\d+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Now\s+·\s+(\d+)\s+\/\s+(\d+)$/, '现在 · $1 / $2');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Coordinator\s+·\s+(\d+)\s+of\s+(\d+)\s+done(?:\s+·\s+Needs you)?$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Coordinator\s+·\s+(\d+)\s+of\s+(\d+)\s+done(\s+·\s+Needs you)?$/,
+        (_m, d, t, needs) => '协调器 · 已完成 ' + d + ' / ' + t + (needs ? ' · 需要你处理' : '')
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    // ===== Antigravity v2.35.0 动态规则：收件箱/插件权限/听写语言/移动对话/打开方式/引导与审批/MCP 表单校验 =====
+    if (/^Resolved "(.+)"$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Resolved "(.+)"$/, (_m, title) => '已解决“' + title + '”');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Allowed in (.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Allowed in (.+)$/, (_m, scope) => '已在 ' + scope + ' 中允许');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Revoke all:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Revoke all:\s*(.+)$/, (_m, target) => '全部撤销：' + target);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Revoke:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Revoke:\s*(.+)$/, (_m, target) => '撤销：' + target);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^All (\d+) will be revoked\. The plugin will ask before doing this again\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^All (\d+) will be revoked\. The plugin will ask before doing this again\.$/,
+        (_m, n) => '全部 ' + n + ' 项将被撤销。下次执行此操作前插件将重新询问。'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Added ([^.\r\n]{1,80})\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Added ([^.\r\n]{1,80})\.$/, (_m, name) => '已添加 ' + name + '。');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Removed ([^.\r\n]{1,80})\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Removed ([^.\r\n]{1,80})\.$/, (_m, name) => '已移除 ' + name + '。');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Error signing in to MCP server:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Error signing in to MCP server:\s*(.+)$/, (_m, detail) => '登录 MCP 服务器出错：' + detail);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Error starting sign-in:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Error starting sign-in:\s*(.+)$/, (_m, detail) => '启动登录失败：' + detail);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^No matching languages for "(.+)"$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^No matching languages for "(.+)"$/, (_m, q) => '未找到匹配“' + q + '”的语言');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Move this conversation to "(.+)"\?$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Move this conversation to "(.+)"\?$/, (_m, target) => '确定将此对话移动到“' + target + '”吗？');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Remove this conversation from its (workspace|project)\?$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Remove this conversation from its (workspace|project)\?$/i,
+        (_m, kind) => '确定将此对话从所属' + (/^workspace$/i.test(kind) ? '工作区' : '项目') + '中移除吗？'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(.+?) \((Not running|Sidecar disabled)\)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^(.+?) \((Not running|Sidecar disabled)\)$/, (_m, prefix, reason) => {
+        const prefixCn = Object.prototype.hasOwnProperty.call(dictionary, prefix)
+          ? dictionary[prefix]
+          : (lowerDictionary.get(prefix.toLowerCase()) || prefix);
+        const reasonCn = reason === 'Sidecar disabled' ? 'Sidecar 已禁用' : '未运行';
+        return prefixCn + '（' + reasonCn + '）';
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+) waiting on you$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^(\d+) waiting on you$/, (_m, n) => n + ' 项正在等待你处理');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Sorry, this account is ineligible to use (.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Sorry, this account is ineligible to use (.+)$/, (_m, prod) => '抱歉，此账户无权使用 ' + prod);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Further action is required to use (.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Further action is required to use (.+)$/, (_m, prod) => '需要完成进一步操作才能使用 ' + prod);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Waiting for approval to (access|execute|run|read|write|edit|modify|delete|use|download)(?::\s*(.+))?$/i.test(trimmed)) {
+      const verbMap235 = {
+        access: '访问', execute: '执行', run: '运行', read: '读取',
+        write: '写入', edit: '编辑', modify: '修改', delete: '删除',
+        use: '使用', download: '下载',
+      };
+      const fixed = trimmed.replace(
+        /^Waiting for approval to (access|execute|run|read|write|edit|modify|delete|use|download)(?::\s*(.+))?$/i,
+        (_m, verb, target) => '正在等待批准' + (verbMap235[verb.toLowerCase()] || verb) + (target ? '：' + target : '')
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Wants to run:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Wants to run:\s*(.+)$/, (_m, target) => '请求运行：' + target);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Minimum length is (\d+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Minimum length is (\d+)$/, (_m, n) => '最少需要 ' + n + ' 个字符');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Maximum length is (\d+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Maximum length is (\d+)$/, (_m, n) => '最多允许 ' + n + ' 个字符');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Minimum value is (-?\d+(?:\.\d+)?)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Minimum value is (-?\d+(?:\.\d+)?)$/, (_m, n) => '最小值为 ' + n);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Maximum value is (-?\d+(?:\.\d+)?)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Maximum value is (-?\d+(?:\.\d+)?)$/, (_m, n) => '最大值为 ' + n);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Select at least (\d+) items?$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Select at least (\d+) items?$/, (_m, n) => '请至少选择 ' + n + ' 项');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Select at most (\d+) items?$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Select at most (\d+) items?$/, (_m, n) => '最多选择 ' + n + ' 项');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Input must match (.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Input must match (.+)$/, (_m, pat) => '输入内容必须匹配 ' + pat);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Dismissed:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Dismissed:\s*(.+)$/, (_m, title) => '已关闭：' + title);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Dismiss:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Dismiss:\s*(.+)$/, (_m, title) => '关闭：' + title);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Forked from (.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Forked from (.+)$/, (_m, src) => '分叉自 ' + src);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Open URL in system browser:\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Open URL in system browser:\s*(.+)$/, (_m, url) => '在系统浏览器中打开链接：' + url);
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Required to ([^:\r\n]{1,40}):\s*(.+)$/.test(trimmed)) {
+      const reqActMap = {
+        save: '保存', create: '创建', enable: '启用', run: '运行',
+        continue: '继续', submit: '提交', activate: '激活', start: '启动',
+      };
+      const fixed = trimmed.replace(/^Required to ([^:\r\n]{1,40}):\s*(.+)$/, (_m, act, items) => {
+        const actCn = reqActMap[act.trim().toLowerCase()] || act;
+        return '执行“' + actCn + '”所需的条件：' + items;
+      });
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Self \(([^)\r\n]{1,40})\)$/.test(trimmed)) {
+      const fixed = trimmed.replace(/^Self \(([^)\r\n]{1,40})\)$/, (_m, field) => '自身（' + field + '）');
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    // ===== Antigravity v2.35.1 动态规则：队列无障碍通知/计划评论/Git 提交流/Hook 匹配/查看器/调度时间 =====
+    if (/^Message queued\.(?:\s+(\d+)\s+messages?\s+in\s+queue\.)?\s+(Sends after background work finishes\.|Sends after agent finishes working\.)\s+Actions available:\s*Send Now,\s*Edit,\s*Delete\.$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Message queued\.(?:\s+(\d+)\s+messages?\s+in\s+queue\.)?\s+(Sends after background work finishes\.|Sends after agent finishes working\.)\s+Actions available:\s*Send Now,\s*Edit,\s*Delete\.$/i,
+        (_m, n, when) => {
+          const whenCn = /background work/i.test(when) ? '将在后台工作完成后发送。' : '将在智能体完成当前工作后发送。';
+          return '消息已加入队列。' + (n ? '队列中共有 ' + n + ' 条消息。' : '') + whenCn + '可用操作：立即发送、编辑、删除。';
+        }
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Proceed with implementation plan and (\d+) comments?$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Proceed with implementation plan and (\d+) comments?$/i,
+        (_m, n) => '按实施计划继续并附带 ' + n + ' 条评论'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Show (\d+) earlier steps?$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Show (\d+) earlier steps?$/i,
+        (_m, n) => '显示更早的 ' + n + ' 个步骤'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Turn (\d+) of (\d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Turn (\d+) of (\d+)$/i,
+        (_m, cur, total) => '第 ' + cur + ' / ' + total + ' 回合'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Go to turn (\d+) of (\d+)$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Go to turn (\d+) of (\d+)$/i,
+        (_m, cur, total) => '跳转到第 ' + cur + ' / ' + total + ' 回合'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(\d+) Files? With Changes$/i.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^(\d+) Files? With Changes$/i,
+        (_m, n) => n + ' 个已更改文件'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^All changes since (.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^All changes since (.+)$/,
+        (_m, ref) => '自 ' + ref + ' 以来的所有更改'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Push (\d+) commits? to (.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Push (\d+) commits? to (.+)$/,
+        (_m, n, remote) => '推送 ' + n + ' 个提交到 ' + remote
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Pushed (\d+) commits? to (.+)\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Pushed (\d+) commits? to (.+)\.$/,
+        (_m, n, remote) => '已推送 ' + n + ' 个提交到 ' + remote + '。'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Pushed to (.+)\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Pushed to (.+)\.$/,
+        (_m, remote) => '已推送到 ' + remote + '。'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Publish (.+) to origin$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Publish (.+) to origin$/,
+        (_m, branch) => '将 ' + branch + ' 发布到 origin'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Published (.+) to origin\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Published (.+) to origin\.$/,
+        (_m, branch) => '已将 ' + branch + ' 发布到 origin。'
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Hook will only trigger if the tool name (matches|starts with) (.+)\.$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Hook will only trigger if the tool name (matches|starts with) (.+)\.$/,
+        (_m, op, pat) => op === 'matches'
+          ? ('仅当工具名称匹配 ' + pat + ' 时才会触发 Hook。')
+          : ('仅当工具名称以 ' + pat + ' 开头时才会触发 Hook。')
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^⚠️\s*Failed to render (LaTeX|Mermaid diagram):\s*(.+)$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^⚠️\s*Failed to render (LaTeX|Mermaid diagram):\s*(.+)$/,
+        (_m, kind, msg) => '⚠️ 渲染 ' + (kind === 'LaTeX' ? 'LaTeX ' : 'Mermaid 图表') + '失败：' + msg
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^Every hour(?: at :(\d{2}))?(?:\s*·\s*(.+))?$/.test(trimmed)) {
+      const fixed = trimmed.replace(
+        /^Every hour(?: at :(\d{2}))?(?:\s*·\s*(.+))?$/,
+        (_m, min, tz) => '每小时' + (min ? ' :' + min : '') + (tz ? ' · ' + tz : '')
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
+    if (/^(Today|Tomorrow|Yesterday)\s+(\d{1,2}:\d{2}(?:\s*[AP]M)?)$/i.test(trimmed)) {
+      const dayWordMap = { today: '今天', tomorrow: '明天', yesterday: '昨天' };
+      const fixed = trimmed.replace(
+        /^(Today|Tomorrow|Yesterday)\s+(\d{1,2}:\d{2}(?:\s*[AP]M)?)$/i,
+        (_m, d, t) => (dayWordMap[d.toLowerCase()] || d) + ' ' + t
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
     // 5. 大小写不敏感词典查找与末尾标点剥离重拼（O(1)，命中写入 stringCache）
     const caseInsensitiveHit = lowerDictionary.get(trimmed.toLowerCase());
     if (caseInsensitiveHit !== undefined) {
@@ -7138,6 +9052,11 @@ if (!isRemoteWindow) {
         continue;
       }
       const lw = tok.toLowerCase();
+      // 独立纯小写 "log" 避免在未识别正文容器中误译为“日志”，多词组合（如 Error Log）仍正常生效
+      if (words.length === 1 && tok === 'log') {
+        cacheSet(trimmed, trimmed);
+        return text;
+      }
       let wordCn;
       if (Object.prototype.hasOwnProperty.call(coreWords, lw)) {
         wordCn = coreWords[lw];
@@ -7191,7 +9110,405 @@ if (!isRemoteWindow) {
     'Git Diff', 'Git 差异'
   ]);
 
+  const SWARM_PROTECTED_CLASSES = [
+    'msg-body', 'mention', 'msg-author', 'o2-mauth', 'chip-name', 'o2-wchip',
+    'hv-nm', 'ov-who', 'o2-runt', 'o2-runsum', 'o2-runnote', 'o2-donem',
+    'o2-mnow', 'o2-mrole', 'o2-rcap', 'o2-tvcap', 'o2-thg', 'o2-sttxt'
+  ];
+
+  function isSwarmProtectedElement(el) {
+    if (!el) return false;
+    if (el.classList) {
+      for (let i = 0; i < SWARM_PROTECTED_CLASSES.length; i++) {
+        if (el.classList.contains(SWARM_PROTECTED_CLASSES[i])) return true;
+      }
+    }
+    const tag = (el.tagName || '').toUpperCase();
+    if ((tag === 'B' || tag === 'P') && el.parentElement && el.parentElement.classList && el.parentElement.classList.contains('o2-goal')) {
+      return true;
+    }
+    return false;
+  }
+
+  const CODE_OR_LITERAL_TAGS = new Set([
+    'CODE', 'PRE', 'KBD', 'SAMP', 'VAR', 'SVG', 'MATH', 'MJX-CONTAINER'
+  ]);
+  const UI_MARKDOWN_CHROME_TESTIDS = new Set([
+    'toast-notification', 'nux-card'
+  ]);
+  const PROTECTED_MARKDOWN_TESTIDS = new Set([
+    'markdown-code-block-preview', 'automation-instructions-markdown'
+  ]);
+
+  function hasAncestorTestId(el, allowedSet) {
+    let cur = el;
+    while (cur && cur !== document.body) {
+      if (cur.nodeType === Node.ELEMENT_NODE && cur.getAttribute) {
+        const tid = cur.getAttribute('data-testid');
+        if (tid && allowedSet.has(tid)) return true;
+      }
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
+  function hasAttr(el, name) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+    if (el.hasAttribute && el.hasAttribute(name)) return true;
+    const val = el.getAttribute ? el.getAttribute(name) : null;
+    return val !== null && val !== undefined;
+  }
+
+  function isProtectedMarkdownElement(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+    const tid = el.getAttribute ? el.getAttribute('data-testid') : null;
+    if (tid && PROTECTED_MARKDOWN_TESTIDS.has(tid)) {
+      return true;
+    }
+    if (hasAttr(el, 'data-markdown-root')) {
+      return !hasAncestorTestId(el, UI_MARKDOWN_CHROME_TESTIDS);
+    }
+    return false;
+  }
+
   const skipCache = new WeakMap();
+
+  // 左侧项目栏系统内置分组白名单：官方 B3c 组件（project-header / button[data-project-card="true"]）
+  // 除渲染真实用户项目外，还会复用于按状态（status-*）、按环境（location-*）、独立对话（standalone）及 Unknown Project；
+  // 放行这些系统分组标题正常汉化，真实用户项目卡片与用户自定义分组（convgroup:*）则严格跳过。
+  const SYSTEM_SIDEBAR_DROP_IDS = new Set([
+    'all',
+    'main-section-header',
+    'pinned',
+    'section-coordinator',
+    'standalone'
+  ]);
+  const SYSTEM_PROJECT_HEADER_LABELS = new Set([
+    'this computer', '本机',
+    'remote', '远程',
+    'blocked', '已阻止',
+    'in progress', '进行中',
+    'idle', '空闲',
+    'standalone', '独立',
+    'unknown project', '未知项目'
+  ]);
+
+  function isProjectHeaderElement(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE || !el.getAttribute) return false;
+    return (
+      el.getAttribute('data-testid') === 'project-header' ||
+      ((el.tagName || '').toUpperCase() === 'BUTTON' && el.getAttribute('data-project-card') === 'true')
+    );
+  }
+
+  function findProjectHeaderElement(node) {
+    let cur = node;
+    while (cur && cur !== document.body) {
+      if (isProjectHeaderElement(cur)) return cur;
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
+  function isSystemGroupProjectHeader(headerEl) {
+    if (!headerEl || headerEl.nodeType !== Node.ELEMENT_NODE || !headerEl.getAttribute) return false;
+    let hasExplicitDropId = false;
+    let cur = headerEl;
+    while (cur && cur !== document.body) {
+      const dropId = cur.getAttribute && cur.getAttribute('data-sidebar-section-drop-id');
+      if (dropId) {
+        if (
+          SYSTEM_SIDEBAR_DROP_IDS.has(dropId) ||
+          dropId.startsWith('status-') ||
+          dropId.startsWith('location-')
+        ) {
+          return true;
+        }
+        hasExplicitDropId = true;
+        break;
+      }
+      cur = cur.parentElement;
+    }
+    const rawLabel = (
+      headerEl.getAttribute('data-project-label') ||
+      headerEl.innerText ||
+      headerEl.textContent ||
+      ''
+    ).trim().toLowerCase();
+    if (rawLabel === 'unknown project' || rawLabel === '未知项目') {
+      return true;
+    }
+    if (
+      !hasExplicitDropId &&
+      headerEl.getAttribute('data-project-icon') === 'custom' &&
+      SYSTEM_PROJECT_HEADER_LABELS.has(rawLabel)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function isUserProjectHeader(el) {
+    return isProjectHeaderElement(el) && !isSystemGroupProjectHeader(el);
+  }
+
+  const SETTINGS_PROJECT_SECTION_HEADERS = new Set([
+    'projects', '项目',
+    'workspaces', '工作区'
+  ]);
+  const PROJECT_PLACEHOLDER_LABELS = new Set([
+    'unknown project', '未知项目',
+    'unknown workspace', '未知工作区'
+  ]);
+  const BREADCRUMB_PLACEHOLDER_LABELS = new Set([
+    'unknown project', '未知项目',
+    'unknown workspace', '未知工作区',
+    'new project', '新建项目',
+    'new workspace', '新建工作区'
+  ]);
+  const EDIT_PROJECT_NAME_ARIA_RE = /^(?:Edit\s+(?:project|workspace)\s+name|编辑\s*(?:项目|工作区)\s*名称?)$/i;
+  const PROJECT_BREADCRUMB_ARIA_RE = /^(?:(?:Project|Workspace)\s*:\s*|(?:项目|工作区)\s*[:：]\s*)/i;
+
+  function getPreviousElementSibling(el) {
+    if (!el) return null;
+    if (el.previousElementSibling !== undefined) return el.previousElementSibling;
+    const parent = el.parentElement;
+    if (!parent || !parent.childNodes) return null;
+    const idx = Array.prototype.indexOf.call(parent.childNodes, el);
+    for (let i = idx - 1; i >= 0; i--) {
+      if (parent.childNodes[i] && parent.childNodes[i].nodeType === Node.ELEMENT_NODE) {
+        return parent.childNodes[i];
+      }
+    }
+    return null;
+  }
+
+  function getNextElementSibling(el) {
+    if (!el) return null;
+    if (el.nextElementSibling !== undefined) return el.nextElementSibling;
+    const parent = el.parentElement;
+    if (!parent || !parent.childNodes) return null;
+    const idx = Array.prototype.indexOf.call(parent.childNodes, el);
+    if (idx < 0) return null;
+    for (let i = idx + 1; i < parent.childNodes.length; i++) {
+      if (parent.childNodes[i] && parent.childNodes[i].nodeType === Node.ELEMENT_NODE) {
+        return parent.childNodes[i];
+      }
+    }
+    return null;
+  }
+
+  function isProjectGlyphIconNode(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+    if (hasAttr(el, 'data-project-glyph')) {
+      return true;
+    }
+    // 对话悬浮卡片（b6 组件）：<span class="shrink-0 flex items-center"><svg|span.google-symbols data-project-glyph="folder|cloud"/></span>
+    // 不依赖 textContent 为空，兼容 Ew 图标回退为 google-symbols 字体 ligature（如 "folder"/"cloud"）
+    if ((el.tagName || '').toUpperCase() === 'SPAN' && el.childNodes && el.childNodes.length > 0) {
+      let hasGlyphChild = false;
+      for (let i = 0; i < el.childNodes.length; i++) {
+        const ch = el.childNodes[i];
+        if (!ch) continue;
+        if (ch.nodeType === Node.TEXT_NODE) {
+          if ((ch.nodeValue || '').trim()) return false;
+        } else if (ch.nodeType === Node.ELEMENT_NODE) {
+          if (hasAttr(ch, 'data-project-glyph')) {
+            hasGlyphChild = true;
+          } else {
+            return false;
+          }
+        }
+      }
+      if (hasGlyphChild) return true;
+    }
+    return false;
+  }
+
+  function isProjectGlyphLabelSelf(cur) {
+    if (!cur || cur.nodeType !== Node.ELEMENT_NODE) return false;
+    // 保护回退为 google-symbols 字体图标的 [data-project-glyph] 节点自身（避免 ligature 如 "folder"/"cloud" 被译为汉字破坏图标）
+    if (hasAttr(cur, 'data-project-glyph')) {
+      return true;
+    }
+    if ((cur.tagName || '').toUpperCase() !== 'SPAN') {
+      return false;
+    }
+    const prev = getPreviousElementSibling(cur);
+    if (!isProjectGlyphIconNode(prev)) return false;
+    const rawLabel = (cur.innerText || cur.textContent || '').trim().toLowerCase();
+    return !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
+  }
+
+  // 对话悬浮卡片 / 侧边栏对话副标题 / 搜索结果中紧随 [data-project-glyph] 的项目名 <span>
+  function isProjectGlyphLabelElement(el) {
+    let cur = el;
+    let depth = 0;
+    while (cur && cur !== document.body && depth < 3) {
+      if (isProjectGlyphLabelSelf(cur)) return true;
+      cur = cur.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
+  function isSettingsSectionHeading(el, allowedTitles) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+    let headingEl = null;
+    if ((el.tagName || '').toUpperCase() === 'H2') {
+      headingEl = el;
+    } else if (el.childNodes) {
+      // 仅检查直接子节点 <h2>，避免 querySelector 误穿透任意无关大容器内部
+      for (let i = 0; i < el.childNodes.length; i++) {
+        const ch = el.childNodes[i];
+        if (ch && ch.nodeType === Node.ELEMENT_NODE && (ch.tagName || '').toUpperCase() === 'H2') {
+          headingEl = ch;
+          break;
+        }
+      }
+    }
+    if (!headingEl) return false;
+    const text = (headingEl.innerText || headingEl.textContent || '').trim().toLowerCase();
+    return allowedTitles.has(text);
+  }
+
+  function isSettingsNavButton(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE || !el.getAttribute) return false;
+    if ((el.tagName || '').toUpperCase() !== 'BUTTON') return false;
+    return (el.getAttribute('data-testid') || '').startsWith('settings-nav-item-');
+  }
+
+  // 判定单个 settings-nav-item-* 按钮是否属于 Projects / Workspaces 分组：
+  // 1) 兼容窄屏设置列表（sXb）：无 settings-sidebar 容器，<h2>Workspaces</h2> 与多个 settings-nav-item-* 同级平铺
+  // 2) 兼容桌面设置侧栏（settings-sidebar）：保留顶部 Settings 下官方 Developer、Show All、Not in Project 及底部 Provide Feedback 正常汉化
+  function isSettingsProjectNavButton(navBtn) {
+    if (!isSettingsNavButton(navBtn)) return false;
+    const rawLabel = (navBtn.innerText || navBtn.textContent || '').trim().toLowerCase();
+    if (PROJECT_PLACEHOLDER_LABELS.has(rawLabel)) return false;
+
+    // 窄屏平铺模式：向前仅跨越同类 settings-nav-item-* 按钮，遇到 <h2> 容器即判定，遇其他隔断元素立即停止
+    let flatPrev = getPreviousElementSibling(navBtn);
+    while (flatPrev && isSettingsNavButton(flatPrev)) {
+      flatPrev = getPreviousElementSibling(flatPrev);
+    }
+    if (isSettingsSectionHeading(flatPrev, SETTINGS_PROJECT_SECTION_HEADERS)) {
+      return true;
+    }
+
+    // 桌面端侧边栏模式：先定位外层 settings-sidebar（优先原生 closest），再最多上溯 4 层检查紧邻前兄弟是否为 Projects/Workspaces 标题
+    const sidebar = navBtn.closest
+      ? navBtn.closest('[data-testid="settings-sidebar"]')
+      : (function findSettingsSidebar(node) {
+          let c = node;
+          while (c && c !== document.body) {
+            if (c.nodeType === Node.ELEMENT_NODE && c.getAttribute && c.getAttribute('data-testid') === 'settings-sidebar') {
+              return c;
+            }
+            c = c.parentElement;
+          }
+          return null;
+        })(navBtn);
+    if (!sidebar) return false;
+
+    let listNode = navBtn.parentElement;
+    let depth = 0;
+    while (listNode && listNode !== sidebar && depth < 4) {
+      const prev = getPreviousElementSibling(listNode);
+      if (isSettingsSectionHeading(prev, SETTINGS_PROJECT_SECTION_HEADERS)) {
+        return true;
+      }
+      listNode = listNode.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
+  // O(1) 常数深度查找最近 settings-nav-item-* 按钮（最多 4 层），彻底避免全页面节点爬树到 document.body
+  function isSettingsProjectNavItem(el) {
+    let cur = el;
+    let depth = 0;
+    while (cur && cur !== document.body && depth < 4) {
+      if (isSettingsNavButton(cur)) {
+        return isSettingsProjectNavButton(cur);
+      }
+      cur = cur.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
+  function isSettingsProjectTitleSelf(cur) {
+    if (!cur || cur.nodeType !== Node.ELEMENT_NODE || (cur.tagName || '').toUpperCase() !== 'SPAN') {
+      return false;
+    }
+    const next = getNextElementSibling(cur);
+    if (!next || (next.tagName || '').toUpperCase() !== 'BUTTON' || !next.getAttribute) {
+      return false;
+    }
+    const aria = (next.getAttribute('aria-label') || '').trim();
+    if (!EDIT_PROJECT_NAME_ARIA_RE.test(aria)) return false;
+    const rawLabel = (cur.innerText || cur.textContent || '').trim().toLowerCase();
+    return !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
+  }
+
+  // 设置页右侧项目详情大标题（紧邻 aria-label="Edit project name" / "Edit workspace name" 编辑按钮）
+  function isSettingsProjectTitleElement(el) {
+    let cur = el;
+    let depth = 0;
+    while (cur && cur !== document.body && depth < 3) {
+      if (isSettingsProjectTitleSelf(cur)) return true;
+      cur = cur.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
+  function isProjectBreadcrumbSegmentSelf(seg) {
+    if (!seg || seg.nodeType !== Node.ELEMENT_NODE || !seg.getAttribute) return false;
+    if (seg.getAttribute('data-testid') !== 'breadcrumb-segment') return false;
+    const aria = (seg.getAttribute('aria-label') || '').trim();
+    if (!PROJECT_BREADCRUMB_ARIA_RE.test(aria)) return false;
+    const rawLabel = (seg.innerText || seg.textContent || '').trim().toLowerCase();
+    return !BREADCRUMB_PLACEHOLDER_LABELS.has(rawLabel);
+  }
+
+  // 对话顶部面包屑中的项目名段（优先原生 closest 快速剪枝，兼容无 closest 环境最多上溯 5 层）
+  function isProjectBreadcrumbSegment(el) {
+    if (!el) return false;
+    if (el.closest) {
+      const seg = el.closest('[data-testid="breadcrumb-segment"]');
+      return seg ? isProjectBreadcrumbSegmentSelf(seg) : false;
+    }
+    let cur = el;
+    let depth = 0;
+    while (cur && cur !== document.body && depth < 5) {
+      if (cur.nodeType === Node.ELEMENT_NODE && cur.getAttribute && cur.getAttribute('data-testid') === 'breadcrumb-segment') {
+        return isProjectBreadcrumbSegmentSelf(cur);
+      }
+      cur = cur.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
+  // 仅判断当前元素自身（供 isNonComposerProtectedSelf 在外层祖先遍历中 O(1) 调用，避免 O(D^2) 嵌套爬树）
+  function isProtectedProjectNameSelf(el) {
+    return (
+      isProjectGlyphLabelSelf(el) ||
+      isSettingsProjectNavButton(el) ||
+      isSettingsProjectTitleSelf(el) ||
+      isProjectBreadcrumbSegmentSelf(el)
+    );
+  }
+
+  function isProtectedProjectNameElement(el) {
+    return (
+      isProjectGlyphLabelElement(el) ||
+      isSettingsProjectNavItem(el) ||
+      isSettingsProjectTitleElement(el) ||
+      isProjectBreadcrumbSegment(el)
+    );
+  }
 
   function shouldSkipNode(node) {
     if (!node) return true;
@@ -7217,6 +9534,21 @@ if (!isRemoteWindow) {
       return true;
     }
 
+    // 左侧项目栏真实用户项目标题卡片：保护项目名及 title/aria-label 原样展示，防止撞词或命中 isActionPill 被误翻译；
+    // 复用同一 project-header 组件的系统内置分组标题（按状态/按环境/独立/Unknown Project）则放行汉化
+    const projectHeader = element.closest
+      ? element.closest('[data-testid="project-header"], button[data-project-card="true"]')
+      : findProjectHeaderElement(element);
+    if (projectHeader && !isSystemGroupProjectHeader(projectHeader)) {
+      return true;
+    }
+
+    // 其他项目名展示位（对话悬浮卡片/副标题/搜索结果的 data-project-glyph 紧邻标签、设置页侧栏项目列表与详情大标题、顶部项目面包屑）：
+    // 同样在 isActionPill 与 skipCache 之前瞬时拦截，防止 Developer/Run/Done 等项目名被误译
+    if (isProtectedProjectNameElement(element)) {
+      return true;
+    }
+
     // 斜杠命令与提及建议菜单触发词标签（动态复用节点，绝不写入 skipCache 防止缓存毒化）
     const isMenuOptionLabel = element.closest && element.closest('[data-testid="menu-option-label"]');
     if (isMenuOptionLabel) {
@@ -7238,20 +9570,16 @@ if (!isRemoteWindow) {
       return false;
     }
 
-    // 选中文本快捷引用气泡（Quote）及 /btw 提问气泡（Ask /btw）特权放行（依赖动态文本，不写 skipCache）
+    // 选中文本快捷引用气泡（Quote / Ask /btw）与执行步骤状态药丸（必须校验不处于代码/Markdown正文/用户消息/思考链等受保护容器内，依赖动态文本不写 skipCache）
     const textContent = (element.innerText || element.textContent || '').trim();
-    if (/^(?:Quote|Ask(?:\s+|\s*\/\s*)btw)(?:\s+(?:Ctrl|Cmd)(?:\+[a-zA-Z0-9]+)+)?$/i.test(textContent)) {
-      return false;
-    }
-
-    // 执行步骤状态药丸（已在上方拦截 CODE/PRE，绝不误伤 Markdown 行内代码；依赖动态文本不写 skipCache）
+    const isQuoteOrBtwBubble = textContent.length <= 40 && /^(?:Quote|Ask(?:\s+|\s*\/\s*)btw)(?:\s+(?:Ctrl|Cmd)(?:\+[a-zA-Z0-9]+)+)?$/i.test(textContent);
     const isActionPill = textContent.length <= 40 && /^(Explored|Exploring|Ran|Run|Running|Viewed|Viewing|Edited|Editing|Thought|Thinking|Working|Done|Analyzed|Analyzing|Created|Creating|Deleted|Deleting|Waiting|Rejected|Errored|Completed|Used)(\s+(command|commands|files?|tools?|artifacts?))?$/i.test(textContent);
-    if (isActionPill) {
+    if (isQuoteOrBtwBubble || isActionPill) {
       let inProtectedAncestor = false;
       let checkCur = element;
       while (checkCur && checkCur !== document.body) {
         const curTag = (checkCur.tagName || '').toUpperCase();
-        if (curTag === 'CODE' || curTag === 'PRE' || curTag === 'SVG' || curTag === 'MATH') {
+        if (CODE_OR_LITERAL_TAGS.has(curTag) || isSwarmProtectedElement(checkCur) || isProtectedMarkdownElement(checkCur)) {
           inProtectedAncestor = true;
           break;
         }
@@ -7320,7 +9648,7 @@ if (!isRemoteWindow) {
       }
 
       const curTag = (cur.tagName || '').toUpperCase();
-      if (curTag === 'PRE' || curTag === 'CODE' || curTag === 'SVG' || curTag === 'MATH' || curTag === 'MJX-CONTAINER') {
+      if (CODE_OR_LITERAL_TAGS.has(curTag) || isProtectedMarkdownElement(cur)) {
         shouldSkip = true;
         break;
       }
@@ -7362,7 +9690,7 @@ if (!isRemoteWindow) {
         break;
       }
 
-      if (cur.classList && (
+      if (isSwarmProtectedElement(cur) || (cur.classList && (
         cur.classList.contains('group/user-input-step') ||
         cur.classList.contains('user-message') ||
         cur.classList.contains('cursor-text') ||
@@ -7370,7 +9698,7 @@ if (!isRemoteWindow) {
         cur.classList.contains('editor-instance') ||
         cur.classList.contains('input-area') ||
         cur.classList.contains('chat-input')
-      )) {
+      ))) {
         shouldSkip = true;
         break;
       }
@@ -7400,6 +9728,7 @@ if (!isRemoteWindow) {
   // 组合句翻译兜底（支持原英文锚点与已翻译内联锚点双向定位，不增删任何 Element 节点）
   function tryCombinedSentenceTranslation(element) {
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+    if (shouldSkipNode(element)) return false;
     const children = Array.prototype.slice.call(element.childNodes);
     if (children.length < 2) return false;
 
@@ -7412,17 +9741,51 @@ if (!isRemoteWindow) {
         }
         slots.push({ type: 'text', node: child });
       } else if (child.nodeType === Node.ELEMENT_NODE) {
-        if (!child.childNodes || child.childNodes.length !== 1 || child.firstChild.nodeType !== Node.TEXT_NODE) {
+        if (!child.childNodes || child.childNodes.length !== 1 || !child.firstChild || child.firstChild.nodeType !== Node.TEXT_NODE) {
           return false;
         }
-        slots.push({ type: 'anchor', node: child, anchorText: child.firstChild.nodeValue.trim() });
+        const anchorTag = (child.tagName || '').toUpperCase();
+        const isProtectedAnchor = CODE_OR_LITERAL_TAGS.has(anchorTag) || shouldSkipNode(child);
+        slots.push({
+          type: 'anchor',
+          node: child,
+          anchorText: child.firstChild.nodeValue.trim(),
+          isProtectedAnchor
+        });
       } else {
         return false;
       }
     }
 
     const anchors = slots.filter(s => s.type === 'anchor');
-    if (!anchors.length) return false;
+    if (!anchors.length) {
+      // 兼容 React 连续三段文本节点（如 {"Site data cleared for "}{host}{"."} / {"Could not clear site data for "}{host}{"."}）
+      // 严格保留中间动态 host 文本节点引用不动，仅改写前后固定文本节点，兼容 React 后续局部更新
+      if (children.length === 3 && children.every(c => c.nodeType === Node.TEXT_NODE)) {
+        const pre = (children[0].nodeValue || '').trim();
+        const mid = (children[1].nodeValue || '').trim();
+        const post = (children[2].nodeValue || '').trim();
+        if (mid && (post === '.' || post === '。' || post === '')) {
+          if (/^Site data cleared for$/i.test(pre)) {
+            children[0].nodeValue = '已清除 ';
+            children[2].nodeValue = ' 的站点数据。';
+            translatedNodes.set(children[0], '已清除 ');
+            translatedNodes.set(children[1], children[1].nodeValue);
+            translatedNodes.set(children[2], ' 的站点数据。');
+            return true;
+          }
+          if (/^Could not clear site data for$/i.test(pre)) {
+            children[0].nodeValue = '无法清除 ';
+            children[2].nodeValue = ' 的站点数据。';
+            translatedNodes.set(children[0], '无法清除 ');
+            translatedNodes.set(children[1], children[1].nodeValue);
+            translatedNodes.set(children[2], ' 的站点数据。');
+            return true;
+          }
+        }
+      }
+      return false;
+    }
 
     let fullText = '';
     for (const child of children) {
@@ -7441,7 +9804,7 @@ if (!isRemoteWindow) {
       let idx = translated.indexOf(a.anchorText, probe);
       let matchedText = a.anchorText;
       let shouldTranslateAnchor = false;
-      if (idx < 0) {
+      if (idx < 0 && !a.isProtectedAnchor) {
         const anchorCn = translateString(a.anchorText);
         if (anchorCn && anchorCn !== a.anchorText && anchorCn.length >= 2) {
           idx = translated.indexOf(anchorCn, probe);
@@ -7495,8 +9858,7 @@ if (!isRemoteWindow) {
           out.push(ch);
         }
       } else if (ch.nodeType === Node.ELEMENT_NODE) {
-        const tag = (ch.tagName || '').toUpperCase();
-        if (tag === 'SVG' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'MATH' || tag === 'CODE' || tag === 'PRE') {
+        if (isNonComposerProtectedSelf(ch)) {
           continue;
         }
         collectSafeLeafTextNodes(ch, out);
@@ -7532,6 +9894,131 @@ if (!isRemoteWindow) {
     }
   }
 
+  const COMPOSER_ARIA_ALLOWED = new Set(['Message input']);
+  const VOICE_BUTTON_ARIA_ALLOWED = new Set(['Start Voice mode', 'End Voice mode']);
+
+  function isNonComposerProtectedSelf(cur) {
+    if (!cur || cur.nodeType !== Node.ELEMENT_NODE) return false;
+    const curTag = (cur.tagName || '').toUpperCase();
+    if (CODE_OR_LITERAL_TAGS.has(curTag) || curTag === 'SCRIPT' || curTag === 'STYLE' || curTag === 'NOSCRIPT' || isSwarmProtectedElement(cur) || isProtectedMarkdownElement(cur)) {
+      return true;
+    }
+    if (isUserProjectHeader(cur) || isProtectedProjectNameSelf(cur)) {
+      return true;
+    }
+    if (cur.getAttribute && (
+      cur.getAttribute('data-testid') === 'user-message-content' ||
+      cur.getAttribute('role') === 'code' ||
+      cur.getAttribute('data-language') ||
+      cur.getAttribute('data-code') ||
+      cur.getAttribute('data-line') ||
+      cur.getAttribute('data-line-number')
+    )) {
+      return true;
+    }
+    if (cur.classList && (
+      cur.classList.contains('group/user-input-step') ||
+      cur.classList.contains('user-message') ||
+      cur.classList.contains('thought-content') ||
+      cur.classList.contains('thinking-content') ||
+      cur.classList.contains('thought-box') ||
+      cur.classList.contains('cursor-edit') ||
+      cur.classList.contains('cursor-text') ||
+      cur.classList.contains('monaco-editor') ||
+      cur.classList.contains('editor-instance') ||
+      cur.classList.contains('katex') ||
+      cur.classList.contains('katex-display') ||
+      cur.classList.contains('katex-html') ||
+      cur.classList.contains('mjx-container')
+    )) {
+      return true;
+    }
+    if (cur.className && typeof cur.className === 'string') {
+      const lowerClass = cur.className.toLowerCase();
+      if (lowerClass.includes('code-line') || lowerClass.includes('view-line') || codeClassPattern.test(cur.className)) {
+        return true;
+      }
+    }
+    if (cur.parentElement && cur.parentElement.querySelector) {
+      const trigger = cur.parentElement.querySelector(':scope > button[data-testid="thinking-collapsible-trigger"]');
+      if (trigger && cur !== trigger && !trigger.contains(cur)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isProtectedFromComposerLabel(node) {
+    let cur = node && node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    while (cur && cur !== document.body) {
+      if (isNonComposerProtectedSelf(cur)) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
+  function translateComposerLabel(node, skipAncestorCheck = false) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE || !node.getAttribute) return;
+    const label = node.getAttribute('aria-label');
+    if (!label) return;
+    const trimmed = label.trim();
+    const upperTag = (node.tagName || '').toUpperCase();
+    let eligible = false;
+    if (COMPOSER_ARIA_ALLOWED.has(trimmed)) {
+      const role = node.getAttribute('role');
+      eligible = role === 'textbox' || role === 'combobox' || upperTag === 'TEXTAREA';
+    } else if (VOICE_BUTTON_ARIA_ALLOWED.has(trimmed)) {
+      eligible = upperTag === 'BUTTON';
+    }
+    if (!eligible || (!skipAncestorCheck && isProtectedFromComposerLabel(node))) return;
+    const translated = translateString(label);
+    if (translated && translated !== label) {
+      node.setAttribute('aria-label', translated);
+    }
+  }
+
+  function isEditableSurface(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    return Boolean(node.isContentEditable || (node.getAttribute && (
+      node.getAttribute('contenteditable') === 'true' ||
+      node.getAttribute('data-lexical-editor') === 'true'
+    )));
+  }
+
+  function isComposerSubtreeRoot(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    if (node.classList && (node.classList.contains('chat-input') || node.classList.contains('input-area'))) {
+      return true;
+    }
+    return isEditableSurface(node) || Boolean(node.getAttribute && (
+      node.getAttribute('role') === 'textbox' ||
+      node.getAttribute('role') === 'combobox'
+    ));
+  }
+
+  function translateComposerLabelsInSubtree(rootNode) {
+    if (!rootNode || rootNode.nodeType !== Node.ELEMENT_NODE) return;
+    if (isProtectedFromComposerLabel(rootNode)) return;
+    const walk = (el) => {
+      if (!el || el.nodeType !== Node.ELEMENT_NODE || isNonComposerProtectedSelf(el)) return;
+      translateComposerLabel(el, true);
+      // 抵达真实编辑区本体（contenteditable / Lexical）后立即剪枝，绝不遍历用户粘贴的大量草稿子节点
+      if (isEditableSurface(el)) return;
+      if (el.shadowRoot) {
+        observeRoot(el.shadowRoot);
+        const srChildren = el.shadowRoot.childNodes;
+        for (let i = 0; srChildren && i < srChildren.length; i++) {
+          walk(srChildren[i]);
+        }
+      }
+      const children = el.childNodes;
+      for (let i = 0; children && i < children.length; i++) {
+        walk(children[i]);
+      }
+    };
+    walk(rootNode);
+  }
+
   function translateNode(node) {
     if (!node) return;
 
@@ -7551,12 +10038,24 @@ if (!isRemoteWindow) {
               }
             }
           });
+        } else {
+          translateComposerLabel(node);
         }
         return;
       }
     }
 
-    if (shouldSkipNode(node)) return;
+    if (shouldSkipNode(node)) {
+      // 输入区仍跳过正文，只处理已知控件的辅助功能名称（穿透 .chat-input / .input-area 容器但不触碰任何文本节点）。
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        if (isComposerSubtreeRoot(node)) {
+          translateComposerLabelsInSubtree(node);
+        } else {
+          translateComposerLabel(node);
+        }
+      }
+      return;
+    }
 
     if (node.nodeType === Node.TEXT_NODE) {
       translateTextNode(node);
@@ -7669,7 +10168,10 @@ if (!isRemoteWindow) {
           const canTranslateAttrs = isInputLike
             ? (!target.parentElement || !shouldSkipNode(target.parentElement))
             : !shouldSkipNode(target);
-          if (!canTranslateAttrs) continue;
+          if (!canTranslateAttrs) {
+            if (attrs.has('aria-label')) translateComposerLabel(target);
+            continue;
+          }
 
           for (const attrName of attrs) {
             if (attrName === 'value' && isInputLike) continue;

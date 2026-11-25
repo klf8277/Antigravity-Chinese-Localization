@@ -123,6 +123,7 @@ class RtcSender {
         this.streams = [];
         this.agents = [];
         this.paused = false;
+        this.screenLocked = false;
         /** Last frame_meta per stream, and when it was sent. */
         this.lastMeta = new Map();
         /** open() calls still waiting for the transport (they count against the cap). */
@@ -359,6 +360,16 @@ class RtcSender {
             this.sendTo(s, this.agentsMessageFor(s));
         }
     }
+    /** The Mac's screen lock (re-sends the agents message on a change). */
+    setScreenLocked(locked) {
+        if (locked === this.screenLocked) {
+            return;
+        }
+        this.screenLocked = locked;
+        for (const s of this.sessions.values()) {
+            this.sendTo(s, this.agentsMessageFor(s));
+        }
+    }
     /** One agent action (C12b activity), to the sessions that may see it. */
     sendActivity(a) {
         const msg = { v: 1, t: 'activity', a };
@@ -567,7 +578,13 @@ class RtcSender {
         const agents = s.kind === 'local'
             ? this.agents
             : this.agents.filter((a) => a.rootConversationId === s.root);
-        return { v: 1, t: 'agents', agents, paused: this.paused };
+        return {
+            v: 1,
+            t: 'agents',
+            agents,
+            paused: this.paused,
+            screenLocked: this.screenLocked,
+        };
     }
     streamsMessage(s) {
         const streams = [];
@@ -616,7 +633,7 @@ class RtcSender {
     sendMeta(stream, r) {
         const reason = r.redacted ? stream.redactReason : undefined;
         const msg = (0, protocol_1.frameMeta)(stream.appId, r, reason, this.colorOf(stream.actorId));
-        // Throttle on what matters to the overlay, not on tsMs.
+        // Throttle on what matters to the viewer's overlay, not on tsMs.
         const json = JSON.stringify({
             w: r.window ?? null,
             px: [r.widthPx, r.heightPx],

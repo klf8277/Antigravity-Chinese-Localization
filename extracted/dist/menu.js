@@ -39,6 +39,8 @@ exports.wslReopenLocallyTemplate = wslReopenLocallyTemplate;
 exports.relaunchWithWslDistro = relaunchWithWslDistro;
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
+const authBootstrap_1 = require("./authBootstrap");
+const constants_1 = require("./constants");
 const utils_1 = require("./utils");
 const updater_1 = require("./updater");
 const wsl_1 = require("./wsl");
@@ -152,7 +154,16 @@ function setupApplicationMenu(url) {
         label: 'New Window',
         accelerator: 'CmdOrCtrl+Shift+N',
         click: () => {
-            (0, utils_1.createWindow)(url, undefined, { cascade: true });
+            if (!process.env.DEV_URL &&
+                url.startsWith(`${constants_1.WINDOW_ORIGIN}:`) &&
+                typeof authBootstrap_1.getActiveLsPort === 'function' &&
+                (0, authBootstrap_1.getActiveLsPort)() <= 0) {
+                return;
+            }
+            const targetUrl = typeof utils_1.resolveCurrentHubUrl === 'function'
+                ? (0, utils_1.resolveCurrentHubUrl)(url)
+                : url;
+            (0, utils_1.createWindow)(targetUrl, undefined, { cascade: true });
         },
     }));
     // Add "Check for Updates" to the application menu on macOS.
@@ -430,6 +441,46 @@ const menuTranslationMap = {
   'Delete Hook': '删除钩子',
   'Add Hook Card': '添加钩子卡片',
   'Delete Handler': '删除处理程序',
+  // 2.34.0 右侧预览栏、插件侧栏、消息气泡与发送按钮原生右键菜单补齐
+  'Add to Chat': '添加到对话',
+  'Copy File Path': '复制文件路径',
+  'Copy File Name': '复制文件名',
+  'Copy Content': '复制内容',
+  'Hide': '隐藏',
+  'Reply': '回复',
+  'Manual Order': '手动排序',
+  'Send Message': '发送消息',
+  'Queue Message': '排队发送消息',
+  'Send Immediately': '立即发送',
+  // 2.35.0 收件箱、对话移动、侧边提问继续、打开方式与远程智能体原生菜单补齐
+  'Resolve': '标为已解决',
+  'Return to Inbox': '移回收件箱',
+  'Inbox Mode': '收件箱模式',
+  'Working Section': '“正在工作”分组',
+  'Auto-Resolve': '自动解决',
+  'Subtitle': '副标题',
+  'Move to Project': '移动到项目',
+  'Move to Workspace': '移动到工作区',
+  'New Project...': '新建项目...',
+  'New Workspace...': '新建工作区...',
+  'Remove from Project': '从项目中移除',
+  'Remove from Workspace': '从工作区中移除',
+  'Continue as a New Conversation': '作为新对话继续',
+  'Continue in Current Workspace': '在当前工作区继续',
+  'Continue in Shared Workspace': '在共享工作区继续',
+  'Continue in New Workspace': '在新工作区继续',
+  'Open with': '打开方式',
+  'Text viewer': '文本查看器',
+  'Image viewer': '图片查看器',
+  'Video player': '视频播放器',
+  'Audio player': '音频播放器',
+  'HTML viewer': 'HTML 查看器',
+  'Notebook viewer': 'Notebook 查看器',
+  'PDF viewer': 'PDF 查看器',
+  'System default app': '系统默认应用',
+  'Application Menu': '应用菜单',
+  'For Me': '仅自己使用',
+  'For My Team': '团队共享',
 };
 function translateMenu(menuItem) {
   if (menuItem.label && menuTranslationMap[menuItem.label]) {

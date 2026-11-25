@@ -28,8 +28,8 @@ const {
   findAvailablePatch,
 } = require('./auto-restore');
 
-const CURRENT_VERSION = '2.33.0';
-const RELEASE_VERSION = '2.33.0'; // 补丁发版追踪号；CURRENT_VERSION 保持与目标客户端及 app.asar.ready 一致
+const CURRENT_VERSION = '2.35.1';
+const RELEASE_VERSION = '2.35.1'; // 补丁发版追踪号；CURRENT_VERSION 保持与目标客户端及 app.asar.ready 一致
 
 function compareVersions(v1, v2) {
   const parse = (v) => {
@@ -353,27 +353,45 @@ function getResourcesDir(appDir) {
   return process.platform === 'darwin' ? upperPath : lowerPath;
 }
 
-// Helper to replace text in file cleanly (idempotent)
+// Helper to replace text in file cleanly (idempotent, CRLF/LF safe for single-to-multiline replacements)
 function replaceInFile(filePath, target, replacement) {
   if (!fs.existsSync(filePath)) {
     throw new Error(`找不到要修改的文件: ${filePath}`);
   }
   let content = fs.readFileSync(filePath, 'utf-8');
-  if (replacement.includes(target) && content.includes(replacement)) {
-    log(`文件 ${path.basename(filePath)} 已经应用过此汉化修改，跳过。`);
-    return;
+  let effTarget = target;
+  let effReplacement = replacement;
+  if (content.includes('\r\n') && (target.includes('\n') || replacement.includes('\n'))) {
+    const crlfTarget = target.replace(/\r?\n/g, '\r\n');
+    const crlfReplacement = replacement.replace(/\r?\n/g, '\r\n');
+    if (content.includes(crlfTarget) || content.includes(crlfReplacement)) {
+      effTarget = crlfTarget;
+      effReplacement = crlfReplacement;
+    }
   }
-  if (!content.includes(target)) {
-    if (content.includes(replacement)) {
+  const lfReplacement = replacement.replace(/\r\n/g, '\n');
+  const crlfReplacementCheck = lfReplacement.replace(/\n/g, '\r\n');
+  const alreadyHasReplacement =
+    content.includes(effReplacement) ||
+    content.includes(lfReplacement) ||
+    content.includes(crlfReplacementCheck);
+  if (effReplacement.includes(effTarget) && alreadyHasReplacement) {
+    log(`文件 ${path.basename(filePath)} 已经应用过此汉化修改，跳过。`);
+    return true;
+  }
+  if (!content.includes(effTarget)) {
+    if (alreadyHasReplacement) {
       log(`文件 ${path.basename(filePath)} 已经应用过此汉化修改，跳过。`);
+      return true;
     } else {
       log(`提示：文件 ${path.basename(filePath)} 未找到匹配目标内容，跳过。`);
+      return false;
     }
-    return;
   }
-  content = content.split(target).join(replacement);
+  content = content.split(effTarget).join(effReplacement);
   fs.writeFileSync(filePath, content, 'utf-8');
   log(`已成功修改 ${path.basename(filePath)}`);
+  return true;
 }
 
 // Perform localization modification operations on extracted files
@@ -589,6 +607,46 @@ const menuTranslationMap = {
   'Delete Hook': '删除钩子',
   'Add Hook Card': '添加钩子卡片',
   'Delete Handler': '删除处理程序',
+  // 2.34.0 右侧预览栏、插件侧栏、消息气泡与发送按钮原生右键菜单补齐
+  'Add to Chat': '添加到对话',
+  'Copy File Path': '复制文件路径',
+  'Copy File Name': '复制文件名',
+  'Copy Content': '复制内容',
+  'Hide': '隐藏',
+  'Reply': '回复',
+  'Manual Order': '手动排序',
+  'Send Message': '发送消息',
+  'Queue Message': '排队发送消息',
+  'Send Immediately': '立即发送',
+  // 2.35.0 收件箱、对话移动、侧边提问继续、打开方式与远程智能体原生菜单补齐
+  'Resolve': '标为已解决',
+  'Return to Inbox': '移回收件箱',
+  'Inbox Mode': '收件箱模式',
+  'Working Section': '“正在工作”分组',
+  'Auto-Resolve': '自动解决',
+  'Subtitle': '副标题',
+  'Move to Project': '移动到项目',
+  'Move to Workspace': '移动到工作区',
+  'New Project...': '新建项目...',
+  'New Workspace...': '新建工作区...',
+  'Remove from Project': '从项目中移除',
+  'Remove from Workspace': '从工作区中移除',
+  'Continue as a New Conversation': '作为新对话继续',
+  'Continue in Current Workspace': '在当前工作区继续',
+  'Continue in Shared Workspace': '在共享工作区继续',
+  'Continue in New Workspace': '在新工作区继续',
+  'Open with': '打开方式',
+  'Text viewer': '文本查看器',
+  'Image viewer': '图片查看器',
+  'Video player': '视频播放器',
+  'Audio player': '音频播放器',
+  'HTML viewer': 'HTML 查看器',
+  'Notebook viewer': 'Notebook 查看器',
+  'PDF viewer': 'PDF 查看器',
+  'System default app': '系统默认应用',
+  'Application Menu': '应用菜单',
+  'For Me': '仅自己使用',
+  'For My Team': '团队共享',
 };
 function translateMenu(menuItem) {
   if (menuItem.label && menuTranslationMap[menuItem.label]) {
@@ -887,6 +945,45 @@ const contextMenuTranslationMap = {
   'Delete Hook': '删除钩子',
   'Add Hook Card': '添加钩子卡片',
   'Delete Handler': '删除处理程序',
+  // 2.34.0 右侧预览栏、插件侧栏、消息气泡与发送按钮原生右键菜单补齐
+  'Copy File Path': '复制文件路径',
+  'Copy File Name': '复制文件名',
+  'Copy Content': '复制内容',
+  'Hide': '隐藏',
+  'Reply': '回复',
+  'Manual Order': '手动排序',
+  'Send Message': '发送消息',
+  'Queue Message': '排队发送消息',
+  'Send Immediately': '立即发送',
+  // 2.35.0 收件箱、对话移动、侧边提问继续、打开方式与远程智能体原生上下文菜单补齐
+  'Resolve': '标为已解决',
+  'Return to Inbox': '移回收件箱',
+  'Inbox Mode': '收件箱模式',
+  'Working Section': '“正在工作”分组',
+  'Auto-Resolve': '自动解决',
+  'Subtitle': '副标题',
+  'Move to Project': '移动到项目',
+  'Move to Workspace': '移动到工作区',
+  'New Project...': '新建项目...',
+  'New Workspace...': '新建工作区...',
+  'Remove from Project': '从项目中移除',
+  'Remove from Workspace': '从工作区中移除',
+  'Continue as a New Conversation': '作为新对话继续',
+  'Continue in Current Workspace': '在当前工作区继续',
+  'Continue in Shared Workspace': '在共享工作区继续',
+  'Continue in New Workspace': '在新工作区继续',
+  'Open with': '打开方式',
+  'Text viewer': '文本查看器',
+  'Image viewer': '图片查看器',
+  'Video player': '视频播放器',
+  'Audio player': '音频播放器',
+  'HTML viewer': 'HTML 查看器',
+  'Notebook viewer': 'Notebook 查看器',
+  'PDF viewer': 'PDF 查看器',
+  'System default app': '系统默认应用',
+  'Application Menu': '应用菜单',
+  'For Me': '仅自己使用',
+  'For My Team': '团队共享',
 };
 function translateContextLabel(lbl) {
   if (!lbl) return '';
@@ -898,6 +995,12 @@ function translateContextLabel(lbl) {
     if (contextMenuTranslationMap[base]) return contextMenuTranslationMap[base] + '（默认）';
     const openMatch = base.match(/^Open in\\s+(.+)$/i);
     if (openMatch) return '在 ' + openMatch[1] + ' 中打开（默认）';
+  }
+  const statusSuffixMatch = trimmed.match(/^(.+?)\\s+\\((Not running|Sidecar disabled)\\)$/);
+  if (statusSuffixMatch) {
+    const baseCn = contextMenuTranslationMap[statusSuffixMatch[1]] || statusSuffixMatch[1];
+    const reasonCn = statusSuffixMatch[2] === 'Sidecar disabled' ? 'Sidecar 已禁用' : '未运行';
+    return baseCn + '（' + reasonCn + '）';
   }
   let m = trimmed.match(/^Move to Group:\\s*(.+)$/i);
   if (m) return '移动到分组：' + m[1];
@@ -992,15 +1095,43 @@ function translateContextLabel(lbl) {
     replaceInFile(updaterPath, "title: 'Check for Updates',", "title: '检查更新',");
     replaceInFile(updaterPath, "message: 'No updates available',", "message: '当前已是最新版本，暂无可用更新。',");
     replaceInFile(updaterPath, "buttons: ['OK'],", "buttons: ['确定'],");
-    replaceInFile(
-      updaterPath,
-      `exports.updateActions = {
+    const updaterHasVoid = fs.readFileSync(updaterPath, 'utf-8').includes('() => void quitAndInstall()');
+    if (updaterHasVoid) {
+      replaceInFile(
+        updaterPath,
+        `exports.updateActions = {
+    [MenuUpdateStep.CheckForUpdates]: () => checkForUpdates(true),
+    [MenuUpdateStep.CheckingForUpdates]: undefined,
+    [MenuUpdateStep.DownloadingUpdate]: undefined,
+    [MenuUpdateStep.RestartToUpdate]: () => void quitAndInstall(),
+};`,
+        `const MENU_UPDATE_STEP_LABELS = {
+    [MenuUpdateStep.CheckForUpdates]: '检查更新',
+    [MenuUpdateStep.CheckingForUpdates]: '正在检查更新...',
+    [MenuUpdateStep.DownloadingUpdate]: '正在下载更新...',
+    [MenuUpdateStep.RestartToUpdate]: '重启以应用更新',
+};
+exports.updateActions = {
+    [MenuUpdateStep.CheckForUpdates]: () => checkForUpdates(true),
+    '检查更新': () => checkForUpdates(true),
+    [MenuUpdateStep.CheckingForUpdates]: undefined,
+    '正在检查更新...': undefined,
+    [MenuUpdateStep.DownloadingUpdate]: undefined,
+    '正在下载更新...': undefined,
+    [MenuUpdateStep.RestartToUpdate]: () => void quitAndInstall(),
+    '重启以应用更新': () => void quitAndInstall(),
+};`
+      );
+    } else {
+      replaceInFile(
+        updaterPath,
+        `exports.updateActions = {
     [MenuUpdateStep.CheckForUpdates]: () => checkForUpdates(true),
     [MenuUpdateStep.CheckingForUpdates]: undefined,
     [MenuUpdateStep.DownloadingUpdate]: undefined,
     [MenuUpdateStep.RestartToUpdate]: () => quitAndInstall(),
 };`,
-      `const MENU_UPDATE_STEP_LABELS = {
+        `const MENU_UPDATE_STEP_LABELS = {
     [MenuUpdateStep.CheckForUpdates]: '检查更新',
     [MenuUpdateStep.CheckingForUpdates]: '正在检查更新...',
     [MenuUpdateStep.DownloadingUpdate]: '正在下载更新...',
@@ -1016,7 +1147,8 @@ exports.updateActions = {
     [MenuUpdateStep.RestartToUpdate]: () => quitAndInstall(),
     '重启以应用更新': () => quitAndInstall(),
 };`
-    );
+      );
+    }
     replaceInFile(
       updaterPath,
       `            item.label = step;
@@ -1736,23 +1868,47 @@ function describeSshConfigProblem(file, { what, why, fix }) {
     );
   }
 
-  // 25. Localize dist/computer/* (v2.33.0 Computer Use 桌面控制悬浮栏 HUD 与边框遮罩)
+  // 25. Localize dist/computer/* (v2.33.0 ~ v2.34.0 Computer Use 桌面控制悬浮栏 HUD 与边框遮罩)
   const hudPath = path.join(targetExtractDir, 'dist', 'computer', 'hud.js');
   if (fs.existsSync(hudPath)) {
-    replaceInFile(
-      hudPath,
-      `<body><div id="bar"><div id="dot"></div><div id="status">AGY is controlling your Mac</div>
+    const hudRaw = fs.readFileSync(hudPath, 'utf-8');
+    if (hudRaw.includes('Allow again') || hudRaw.includes('重新允许')) {
+      replaceInFile(
+        hudPath,
+        `<body><div id="bar"><div id="dot"></div><div id="status">AGY is controlling your Mac</div>
+<button id="stop">Stop</button><button id="resume" title="Let agents use this Mac again. The stopped task does not restart.">Allow again</button></div>`,
+        `<body><div id="bar"><div id="dot"></div><div id="status">AGY 正在控制您的 Mac</div>
+<button id="stop">停止</button><button id="resume" title="重新允许智能体使用此 Mac。已停止的任务不会自动重启。">重新允许</button></div>`
+      );
+    } else {
+      replaceInFile(
+        hudPath,
+        `<body><div id="bar"><div id="dot"></div><div id="status">AGY is controlling your Mac</div>
 <button id="stop">Stop</button><button id="resume">Resume</button></div>`,
-      `<body><div id="bar"><div id="dot"></div><div id="status">AGY 正在控制您的 Mac</div>
+        `<body><div id="bar"><div id="dot"></div><div id="status">AGY 正在控制您的 Mac</div>
 <button id="stop">停止</button><button id="resume">继续</button></div>`
-    );
+      );
+    }
     replaceInFile(hudPath, "end.textContent = 'Stopped';", "end.textContent = '已停止';");
     replaceInFile(hudPath, "end.textContent = 'Stop';", "end.textContent = '停止';");
   }
 
   const hudStatePath = path.join(targetExtractDir, 'dist', 'computer', 'hudState.js');
   if (fs.existsSync(hudStatePath)) {
-    replaceInFile(hudStatePath, "return { state: 'paused', text: 'Agent paused — you have control', visible };", "return { state: 'paused', text: '智能体已暂停 — 您已接管控制', visible };");
+    const hudStateRaw = fs.readFileSync(hudStatePath, 'utf-8');
+    if (hudStateRaw.includes("s.pauseCause === 'user_takeover'")) {
+      replaceInFile(
+        hudStatePath,
+        `        const text = s.pauseCause === 'user_takeover'
+            ? 'You took over — agent stopped'
+            : 'Agent stopped';`,
+        `        const text = s.pauseCause === 'user_takeover'
+            ? '您已接管 — 智能体已停止'
+            : '智能体已停止';`
+      );
+    } else {
+      replaceInFile(hudStatePath, "return { state: 'paused', text: 'Agent paused — you have control', visible };", "return { state: 'paused', text: '智能体已暂停 — 您已接管控制', visible };");
+    }
     replaceInFile(hudStatePath, "return { state: 'idle', text: 'Agent idle', visible };", "return { state: 'idle', text: '智能体空闲', visible };");
     replaceInFile(
       hudStatePath,
@@ -1811,6 +1967,93 @@ function describeSshConfigProblem(file, { what, why, fix }) {
     return \`智能体：\${label === 'unnamed' ? '未命名' : label}\`;
 }`
     );
+  }
+
+  // 26. Patch dist/utils.js (为 Swarm 等 plugin:// 跨域侧栏子框架复用 preload DOM 汉化引擎)
+  const utilsPath = path.join(targetExtractDir, 'dist', 'utils.js');
+  if (fs.existsSync(utilsPath)) {
+    const pluginHookInjected = replaceInFile(
+      utilsPath,
+      `    const handleDidFailLoad = (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        // Ignore subframes and benign aborted navigations (ERR_ABORTED = -3).
+        if (!isMainFrame || errorCode === -3) {
+            return;
+        }
+        console.warn(\`[HubWindow] Main-frame load failed (\${errorCode} \${errorDescription}): \${(0, authBootstrap_1.redactUrlTokens)(validatedURL)}\`);
+    };`,
+      `    const handleDidFailLoad = (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        // Ignore subframes and benign aborted navigations (ERR_ABORTED = -3).
+        if (!isMainFrame || errorCode === -3) {
+            return;
+        }
+        console.warn(\`[HubWindow] Main-frame load failed (\${errorCode} \${errorDescription}): \${(0, authBootstrap_1.redactUrlTokens)(validatedURL)}\`);
+    };
+    // Antigravity 2.0 Plugin Subframe DOM Localization Hook (Swarm & plugin:// sidecars)
+    const getPluginDomI18nSource = () => {
+        if (typeof globalThis.__agyCachedPluginDomI18nSource === 'string') {
+            return globalThis.__agyCachedPluginDomI18nSource;
+        }
+        try {
+            const raw = fs.readFileSync(path_1.default.join(__dirname, 'preload.js'), 'utf-8');
+            const marker = '// Antigravity 2.0 Chinese Localization Engine';
+            const idx = raw.indexOf(marker);
+            globalThis.__agyCachedPluginDomI18nSource = idx !== -1 ? raw.slice(idx) : '';
+        }
+        catch {
+            globalThis.__agyCachedPluginDomI18nSource = '';
+        }
+        return globalThis.__agyCachedPluginDomI18nSource;
+    };
+    const injectPluginFrameLocalization = (frame) => {
+        if (!frame || frame.isDestroyed?.()) {
+            return;
+        }
+        const frameUrl = typeof frame.url === 'string' ? frame.url : '';
+        if (!/^plugin:\\/\\//i.test(frameUrl)) {
+            return;
+        }
+        const source = getPluginDomI18nSource();
+        if (!source || typeof frame.executeJavaScript !== 'function') {
+            return;
+        }
+        void Promise.resolve(frame.executeJavaScript(source, false)).catch(() => undefined);
+    };
+    const handlePluginSubframeLoad = (_event, isMainFrame, frameProcessId, frameRoutingId) => {
+        if (isMainFrame) {
+            return;
+        }
+        let targetFrame;
+        if (typeof frameProcessId === 'number' &&
+            typeof frameRoutingId === 'number' &&
+            typeof electron_1.webFrameMain?.fromId === 'function') {
+            targetFrame = electron_1.webFrameMain.fromId(frameProcessId, frameRoutingId);
+        }
+        if (targetFrame) {
+            injectPluginFrameLocalization(targetFrame);
+            return;
+        }
+        const subframes = hubContents.mainFrame?.framesInSubtree ?? [];
+        for (const f of subframes) {
+            if (f && f !== hubContents.mainFrame) {
+                injectPluginFrameLocalization(f);
+            }
+        }
+    };`
+    );
+    if (pluginHookInjected) {
+      replaceInFile(
+        utilsPath,
+        `        hubContents.off?.('did-fail-load', handleDidFailLoad);`,
+        `        hubContents.off?.('did-fail-load', handleDidFailLoad);
+        hubContents.off?.('did-frame-finish-load', handlePluginSubframeLoad);`
+      );
+      replaceInFile(
+        utilsPath,
+        `    hubContents.on('did-fail-load', handleDidFailLoad);`,
+        `    hubContents.on('did-fail-load', handleDidFailLoad);
+    hubContents.on('did-frame-finish-load', handlePluginSubframeLoad);`
+      );
+    }
   }
 
   log('汉化修改注入完成！');

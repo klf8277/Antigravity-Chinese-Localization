@@ -4,6 +4,98 @@
 
 ---
 
+## v2.35.1 (2026-11-25) — 同步适配官方 2.35.1 版本、根治 AI 正文与行内代码误译（Issue #80）及全量补齐反馈/Hooks/引导/查看器/Git/调度动态文案
+
+### 1. 官方 v2.35.1 差异核验与版本基线对齐（整合 PR #82 `@Justin-Mai`，同步致谢 PR #83 `@wyun100`）
+- **主进程 (`app.asar`) 与内嵌前端逐文件比对**：对比官方 `v2.35.1` 原版 `app.asar` 全部 180 个非 `node_modules` 文件与内嵌 548 个前端资源，确认主进程仅变更 `package.json` 版本号（`0` 新增/删除模块）、前端包 SHA-256 零变动，`localize.js` 全量 231 处主进程补丁点实现 `0` 跳过 100% 命中。
+- **版本门禁与官方瘦身规格重编**：将 `localize.js`（`CURRENT_VERSION` / `RELEASE_VERSION`）、`package.json`、`extracted/package.json`、`index.html` 与轻量 `app.asar.ready` 同步升级至 **`2.35.1`**；消除 Windows CRLF 打包膨胀后，`app.asar.ready` 严格对齐官方瘦身规范为 **`7,970,885` 字节（`7.60 MiB`）**，保障 `--auto-restore` 与无 Node.js 离线模式对 `v2.35.1` 客户端的精准版本校验放行。
+
+### 2. AI 对话正文与 Markdown/行内代码物理隔离（修复 Issue #80，感谢 `@Miafetta` 反馈与 PR #82 `@Justin-Mai`）
+- **`[data-markdown-root]` 全量隔离与白名单精准放行**：逐一审计官方前端全部 11 处 `w1` Markdown 渲染调用点，对 AI 对话回复、侧边提问回复、工件预览、Markdown 文件预览、`markdown-code-block-preview`、`automation-instructions-markdown` 及悬浮文档正文实施物理跳过，仅白名单放行 `toast-notification` 与 `nux-card` 两类系统 UI 提示组件（且其内部 `<code>`/`<pre>` 仍严格锁定）。
+- **行内代码保护与四重边界漏洞封堵**：将 `CODE` / `PRE` / `KBD` / `SAMP` / `VAR` 纳入祖先链与组合句锚点绝对保护；同步修复审查检出的 4 处深层边界漏洞——封堵 `Quote` / `Ask /btw` 快捷引用气泡在 AI Markdown 正文、行内代码或思考链内绕过隔离的旧漏洞；统一抽出 `hasAttr` 辅助函数根治 `data-markdown-root` 与 `data-project-glyph` 在极简 DOM 环境下 `undefined !== null` 误判；为 `tryCombinedSentenceTranslation` 入口补加 `shouldSkipNode` 门禁；升级 `collectSafeLeafTextNodes` 复用 `isNonComposerProtectedSelf` 统一跳过全部受保护容器。
+
+### 3. Web UI 增量汉化补漏（+86 条零重复静态词典、+16 组 `$`-安全动态规则）
+- **反馈弹窗与上传校验 (`XUb` / `YUb`)**：补齐账号与计费（Auth & Billing）反馈指引与 3 项具体条目、Google Chat 交流群组入口、`Screenshot must be under 10 MB`、`Attaching logs requires an email address` 及 `Submitting...`。
+- **Hooks 钩子与组织 MCP 白名单 (`c0b` / `d0b` / `e0b`)**：补齐 `Organization MCP Allowlist (Read-Only)` 及其管理员规则说明、`Pre Tool Use` / `Post Tool Use`、5 项触发时机描述、`Timeout:` / `Handler #` / `Matcher:` 以及与词典术语对齐的动态工具名匹配描述（`Hook will only trigger if the tool name matches/starts with ...` ➔ `仅当工具名称匹配/以 ... 开头时才会触发 Hook。`）。
+- **新版引导、条款、AI 点数与账号校验**：补齐 `Terms of Service & Data Use` 安全风险提示、Onboarding 欢迎副标题、侧边栏登录与账号验证引导、`Models Tab` ➔ `“模型”标签页`（消除旧分词产生的“模型制表符”误译）与 `AI Credits are used when ...`（统一沿用全库 `AI 点数` 译法）。
+- **工作流迁移、队列播报、输入占位符、PDF/图表查看器、轨迹统计与 Git/调度规则**：补齐工作流迁移横幅（`Migrate with Agent`）、等待权限批准引导、子智能体/通用输入占位符、`Trajectory Stats` 成本与分页统计表、PDF 暂停文本选择提示条、LaTeX（修正中英文空格）/Mermaid 渲染失败提示、全量队列无障碍播报、`Proceed with implementation plan and N comment(s)`、`Show N earlier steps`、`Turn/Go to turn X of Y`、`N File(s) With Changes`、Git 提交/推送/发布状态以及自动化 `Every hour` / `Today HH:MM`（严格限定时间格式防误伤）规则。
+
+### 4. 全链路验证与测试门禁
+- 词典扩充至 **`4,923` 键 `0` 重复**；新增 `tests/ticket-57-v2351-features.test.js` 与 `tests/ticket-58-chat-markdown-skip.test.js`（覆盖全部 8 组 AI 正文/行内代码/`Quote` 防穿透/Mock 边界断言）并注册至 `tests/run-all-tests.js`，同步校验全部 176 个 `extracted/dist/**/*.js` 语法零报错与 `.bat`/`.sh`/`.command` 换行符规范；全工程 **65/65 组 TDD 自动化测试套件 100% ALL GREEN**。
+
+---
+
+## v2.35.0 (2026-11-24) — 全面适配官方 2.35.0 版本：收件箱模式与自动解决、插件权限管理页、语音听写多语言选择器、侧边提问继续新对话、引导与 WIF/授权码登录流及远程智能体升级
+
+### 1. 官方 v2.35.0 主进程架构同步与全量补丁验收
+- **主进程模块与预打包资产对齐**：同步官方 `v2.35.0` 新增的 4 个主进程模块（`dist/appChannel.js`、`dist/customWindowControls.js`、`dist/computer/idleProbe.js`、`dist/computer/permissionGuide.js`）与 24 个更新模块，同步清理官方已移除的 `dist/computer/hud.js`、`hudAgents.js`、`hudState.js`（同时在 `localize.js` 中保留向后兼容守卫以持续支持 `v2.33.0 ~ v2.34.0` 客户端）；全量 231 处主进程补丁点实现 `0` 跳过全数命中。
+- **原生菜单与上下文菜单扩充 (`dist/menu.js`、`dist/ipcHandlers.js`)**：新增 28 项 `v2.35.0` 原生菜单与右键菜单映射（`Resolve`、`Return to Inbox`、`Inbox Mode`、`Working Section`、`Auto-Resolve`、`Subtitle`、`Move to Project/Workspace`、`Remove from Project/Workspace`、`Continue as a New Conversation` / 工作区续聊、`Open with` 各类查看器、`Application Menu`、`For Me` / `For My Team`），并在 `translateContextLabel` 中补齐 `(Not running)` / `(Sidecar disabled)` 动态状态后缀翻译。
+- **轻量预打包产物 (`app.asar.ready`) 与 CRLF 幂等加固 (`localize.js`)**：严格对齐官方瘦身打包规范（`--unpack-dir "**/chrome-devtools-mcp/**"`），构建 `v2.35.0` 预编译包 `7,926,656` 字节（`7.56 MiB`），版本元数据与控制中心全面升至 `2.35.0`；同时修复 `replaceInFile` 在 Windows CRLF 文件中执行“单行目标转多行替换”时漏检替换体换行符导致二次注入重复行的隐患。
+
+### 2. Web UI v2.35.0 全量特性汉化与防夹生精修（+181 条零重复词典、+31 组 `$`-安全动态规则）
+- **收件箱模式与侧边栏管理 (`Inbox Mode` / `Auto-Resolve` / `Working Section`)**：完整汉化收件箱模式开关、“正在工作”分组、自动解决时长说明、标记已解决与移回收件箱菜单/横幅/Toast（`Resolved "<title>"`）、`All caught up`、副标题设置、按状态分组锁定提示及自动置顶说明。
+- **插件权限管理页 (`Plugin permissions`)**：覆盖“你已允许 / 插件自带 / 无法撤销”权限列表、项目作用域 `Allowed in <project>`、单项撤销 `Revoke:` 与批量撤销确认弹窗（`All N will be revoked...`）、以及插件命令预览提示与 MCP 登录错误提示。
+- **语音听写多语言选择器 (`Dictation languages`)**：覆盖多语言优先级限制说明、重置为自动、浏览器默认自动检测、搜索框占位符、多选/拖拽排序提示、`#1 Primary` 首选徽章、28 种听写语言中文对照（保留原生语言副标签不重复）与无匹配搜索提示。
+- **侧边提问继续为新对话、对话移动弹窗与“打开方式”查看器**：补齐侧边提问升级为新对话及当前/共享/新工作区选项与不可用原因提示、对话移动/移出项目确认弹窗（同时消除原先 `Remove from Project` 被拼成“移除来自项目”的问题）、远端/本机克隆菜单、`Open with` 全套文本/图片/音视频/HTML/Notebook/PDF 查看器及禁用状态后缀、`Application Menu` 应用菜单。
+- **远程智能体与 Orchestrator 模型选择**：补齐侧边栏新建智能体“仅自己使用 / 团队共享”菜单、配置中/更新中/已停滞/不再活跃状态、身份搜索框、`N waiting on you` 提醒，以及 `Orchestrator` 默认/自定义模型路由说明（继续保持 `Orchestrator`、`Swarm`、模型名与思考链原生英文）。
+- **新版 Onboarding 引导流、WIF SSO 与授权码登录**：补齐新版能力介绍标题、职业偏好提问、Google Cloud 项目详情表单、授权码登录切换/粘贴/拒绝重试、WIF 配置面板、`Last Used` 徽章以及账户无资格/待验证页面动态标题。
+- **权限决策、MCP Elicitation 表单校验、队列/分页、Google Drive 与 CEL 触发器**：精准收录 `Yes, always allow in this project` ➔ `是，在此项目中始终允许`（修复旧正则产生的半中半英夹生词）、`Yes, allow in this conversation` / `Yes, allow for this task`、管理员提权与动作审批等待提示、`Wants to run:`、全套表单长度/数值/条数/正则校验提示（全回调函数写法严格 `$`-安全）、消息排队/加载更新消息提示、Google Drive 标题获取失败 Toast 及自动化 CEL `Self-watch` 校验徽章。
+
+### 3. 社区 PR 整合与 Issue 修复（PR #74 / PR #76 / PR #77 / PR #79 / Issue #73）
+- **路径与 URL 权限审批标题全家族根治（合并 PR #74，感谢 `@angel12538`）**：合并 `Allow read/write access to this path?` 静态词条，并同步扩展 `src/dom-translator.js` 共享权限动作映射表覆盖官方 `Hzc` 全部 9 项动作（含 `read/write access to this path`、`reading this URL`、`executing actions on this URL`、`browser downloads from this site`），彻底消灭 `Allow ...?` 与 `Save rule to always allow ...?` 18 种标题组合的半中半英夹生输出。
+- **版本匹配强门禁与 macOS 签名风险指引（合并 PR #76，感谢 `@UncleLiu-0306`）**：升级中英文 README 与 Release 生成说明，将智能体安装指令加固为「先核对 OS 与客户端精确版本 + 备份纯净原版 + macOS 先告知签名影响等待确认」，并在 macOS 章节顶部前置强调原始签名失效与官方完整包恢复路径，同时保留带风险提示的可选 `xattr -cr` / `codesign` 本地启动排错命令。
+- **AI 点数不足、基础配额刷新与超额启用提示全变体覆盖（合并 PR #77，感谢 `@angel12538`）**：对照官方 `v2.35.0` 源码补全 `at least N` / `more` AI Credits、缺省 `this model -> 此模型`、本地化含点号时间戳（如 `Nov. 25, 2026, 2:30 p.m.`）、`Your plan's baseline quota will refresh on ...` 与 `enable AI Credit overages.` 全部动态组合，并同步补齐同函数的 `Your quota for <model> will reset on / has been reached. Switch to another available model to continue.` 提示。
+- **Hydrogen 模型推荐提示与下线日期防误伤加固（合并 PR #79，感谢 `@angel12538`）**：收录 `Use Hydrogen for better quality with lower quota usage.` 静态词条与动态下线日期组合，并同步修复原 `leaving on` 规则过宽可能误伤自然英文句子（如 `John is leaving on vacation.` / `Leaving on Monday`）及历史 `will be removed on` 跨句截胡问题；升级 `parseEnglishDateCn` 严格校验英文月日日期（兼容 `Sept`、`Nov.` 与序数词）并约束独立 `leaving on` 主语。
+- **修复无 Node.js 环境下双击批处理 2 秒闪退并新增离线一键还原英文原版（Issue #73，感谢 `@yeli008` 反馈）**：修复 `一键更新汉化.bat` 在客户端已汉化时命中 `:LEGACY_ALREADY_LOCALIZED` 无停顿直接关闭窗口的问题；现在无 Node.js 离线模式下会清晰提示无法打开浏览器控制中心，并支持直接输入 `R` 执行带版本匹配、防污染校验与 SHA-256 原子替换的离线安全还原英文原版。
+
+### 4. 全链路验证与测试门禁
+- 词典扩充至 **`4,837` 键 `0` 重复**；新增 `tests/ticket-56-v2350-features.test.js` 专项测试套件（含 PR #77/#79 全变体与防误伤回归用例及 Windows `cmd.exe` 实机离线还原成功/跨版本拦截/污染备份拦截验证），同步升级 `Ticket-44` / `Ticket-48` 在 `v2.35.0+` 缺失 `hud*.js` 时使用隔离夹具持续校验向后兼容；全工程 **63/63 组 TDD 自动化测试套件 100% ALL GREEN**。
+
+---
+
+## v2.34.0.1 (2026-11-23) — Swarm 多智能体面板与 `plugin://` 子框架汉化、左侧项目名保护收窄、高频 UI 补漏及原生右键菜单全量升级
+
+### 1. Swarm 多智能体协作面板与 `plugin://` 子框架注入（Ticket-53）
+- **`plugin://` 子框架实时 DOM 汉化钩子 (`dist/utils.js`)**：在主进程监听 `hubContents` 的 `did-frame-finish-load` 事件，严格限定仅对 `/^plugin:\/\//i` 协议子框架执行（复用同目录 `preload.js` 缓存引擎切片并配置 `window.__agyDomTranslatorInitialized` 幂等守卫，窗口关闭时清理监听）。
+- **Swarm 侧栏全量汉化与动态内容隔离**：遵循与 `Orchestrator` 一致的品牌名策略保留 `Swarm` 原生英文，新增 **+131 条**静态词典与 **+30 组**动态模板（`Overview`、`Board`、`Members`、`Graph`、`Raw`、`Hive`、`Mentions`、`Live`、`Coordinator`、进度计数、回放与 GIF 导出等），并严格隔离 AI 生成的帖子正文、任务标题与 `@mention` / 成员徽章；进度译文保持数字前置以兼容原生 `hive.js` 滑块替换。
+- **跨平台 CRLF 注入修复 (`localize.js`)**：为 `replaceInFile` 增加 CRLF/LF 自适应匹配，并为 `utils.js` 子框架钩子补充原子前置判断，消除 Windows 检出环境下跨行模板匹配落空风险。
+
+### 2. 社区 PR 协同整合与源码级精修（PR #69 / #70 / #71）
+- **首页任务建议、快捷键与输入区无障碍标签（PR #69，感谢 `@12cjn`，Ticket-51）**：补齐首页建议卡片、快捷键与无障碍辅助标签；同步修复输入区 `.chat-input` / `.input-area` 穿透隔离、编辑区草稿 O(1) 剪枝及快捷键正则边界。
+- **左侧项目栏项目名保护与系统分组精准放行（PR #70，感谢 `@omsd512-W`，Ticket-52）**：在 `shouldSkipNode` 与 `isNonComposerProtectedSelf` 中严格保护真实用户项目标题卡片及用户自定义对话分组（`convgroup:*`）不被词典或 `isActionPill` 误翻，同时精准放行复用同一 `project-header` 组件的系统内置分组标题（按状态 `status-*`、按环境 `location-*`、独立对话 `standalone` 与 `Unknown Project`）。
+- **v2.34.0 高频遗漏界面文案与凭据/站点数据规则（PR #71，感谢 `@dsasanim4-source`，Ticket-54）**：补齐加载态、语音重登、麦克风权限、认证登录、云端初始化说明、远程更新弹窗、反馈指引与浏览器工具等 **+61 条**文案；修复插件凭据 `JXb` 多句 `.join(" ")` 拼接动态正则与「下方列出的域名」方位，补充成功态 `Site data cleared for` 并在 `tryCombinedSentenceTranslation` 中实现 React 三文本节点原位合句（保持中间 `host` 节点引用不变）。
+
+### 3. 右侧预览栏原生右键菜单、发送快捷键提示与云工作区免责声明（Ticket-55）
+- **全端 16 处原生右键菜单扫漏补齐 (`dist/ipcHandlers.js`、`dist/menu.js`)**：补齐右侧文件/图片预览栏漏译的 `Copy File Path`（`复制文件路径`）、`Copy File Name`（`复制文件名`）、`Copy Content`（`复制内容`），以及插件侧栏 `Hide`（`隐藏`）、智能体气泡 `Reply`（`回复`）、分组排序 `Manual Order`（`手动排序`）、发送按钮右键 `Send Message` / `Queue Message` / `Send Immediately` 与顶栏菜单 `Add to Chat`。
+- **发送按钮快捷键悬浮提示**：新增动态规则覆盖 `Send Message` / `Queue Message` / `Send Immediately` 搭配 `Enter`、`Ctrl+Enter`、`⏎`、`⌘⏎`、`(Alt+Enter)`、`(⌥⏎)` 的全套组合。
+- **云工作区文件与资源弹窗全量补齐**：覆盖弹窗副标题、同屏横幅、项目/工作区设置副标题，以及底部含 4 个蓝色超链接（`necessary rights`、`Prohibited Use Policy`、`Google Antigravity Terms of Service`、`Google Privacy Policy`）的免责声明整段原位翻译，100% 保留全部 `<a>` 点击跳转。
+
+### 4. 全链路验证与测试门禁
+- 词典扩充至 **`4,653` 键 `0` 重复**，轻量版 `app.asar.ready` 为 `7,838,954` 字节（`7.48 MiB`，客户端基线严格保持 `2.34.0` 防跨版本白屏）；新增 `Ticket-51` ~ `Ticket-55` 专项套件，全工程 **62/62 组 TDD 自动化测试套件 100% ALL GREEN**。
+
+---
+
+## v2.34.0 (2026-11-21) — 全面适配官方 2.34.0 版本：输入框发送快捷键与消息队列改版、Orchestrator 设置与思考深度校准、内联审批提问卡片、侧边栏自定义/筛选排序及 Computer Use 锁屏/HUD 升级
+
+### 1. 官方 v2.34.0 主进程补丁点精确校准与兼容升级
+- **更新器状态机兼容修复 (`dist/updater.js`)**：跟进官方 `2.34.0` 将 `RestartToUpdate` 箭头函数调整为 `() => void quitAndInstall()` 的签名变化，升级 `localize.js` 自动匹配官方新版及历史 Mock 用例，`applyTranslations` 实现 `0` 跳过全量命中。
+- **Computer Use 悬浮栏与接管状态升级 (`dist/computer/hud.js`、`hudState.js`)**：适配新版按钮 `<button id="resume" title="...">Allow again</button>` ➔ `重新允许` 与悬停提示“重新允许智能体使用此 Mac。已停止的任务不会自动重启。”，以及 `hudState.hudView` 按 `pauseCause === 'user_takeover'` 区分“您已接管 — 智能体已停止”与“智能体已停止”，同时保留全部 `agy-hud:` IPC 协议令牌与向后兼容分支。
+- **同步官方新增主进程模块与预打包资产**：同步官方 `v2.34.0` 新增 `dist/authBootstrap.js`、`dist/browserStream/*` (7 个模块)、`dist/computer/screenLock.js` 与 `dist/proto/browser_viewer_pb.js`（均严格保持协议/错误码原生）；重建轻量版 `app.asar.ready`（`7,756,964` 字节 / `7.40 MiB`，版本 `2.34.0`）。
+
+### 2. Web UI 增量全量覆盖与协同补漏（+150 条词典、+40 组动态规则，含 PR #67 & Issue #68）
+- **输入框与消息发送体验 (`Input Box` & `Send message`)**：全面汉化 `Cmd+Enter` / `Ctrl+Enter` / `Enter` 发送快捷键说明、消息即时发送设置引导（`Messages now send immediately. Configure in` / `Instead of queueing...`）、`Queue Message` / `Cmd+click to open` / `Ctrl+click to open` 及小写标题版 `Sync JJ worktrees to head`。
+- **Orchestrator 设置、`Thinking effort` 与 `Extra High` 校准**：保持 `Orchestrator` 模式名英文原生不翻译，汉化 `Orchestrator 设置`、`Orchestrator 模型`、`Executor Model`、思考深度提示气泡、`ELMO Composite` 与 `Coordinator`，并精确收录 `Extra High` ➔ `极高`（修复原本分词叠加出的 `"极高高"`）。
+- **内联提问与运行时/终端高危权限审批卡片 (Issue #68)**：全量补齐 `Skip`、`Skipped`、`Add note`、`Resolved in chat`、`Replaced by newer request`、`Expired · Action not taken`、`Ask to retry`、`Select one or more options`、`Other answer`、`Yes, allow this time` / `Yes, allow this download` / `Yes, save rule ...` / `Yes, and always allow ...` 全套静动态命令规则、`No (tell the agent what to do instead)`、`Allow <action/command>?`、`Recursively deleting the pre-existing directory ...` 跨区销毁警告、`Runtime permission` 与 `Deny with note` / `Please retry:` 等动态前缀。
+- **侧边栏自定义、筛选排序与归档提示升级**：补齐 `Customize Sidebar` 全套开关、`Filter and Sort` 菜单、`Pin Entire Workspace/Project`，并跟进 `v2.34.0` 把归档 Toast 拆分碎片扩展到 `(![tune](icon://tune) Customize Sidebar).`。
+- **Computer Use 锁屏、预览与 macOS 权限向导**：覆盖锁屏横幅、实时预览连接与不可用状态（修复 `"Connecting to the live preview…"` 半英文泄露）、macOS 权限引导全套片段与动态提示。
+- **技能卡、插件描述、设置模板与快捷键录制（整合 PR #67）**：新增 `mcp-app-development` / `migrate-agent-settings` / `native_swarm` / `run-workflow` / `swarm_*` 等 7 条内置技能卡、`Unlock the power of agent swarms.`、快捷键录制提示 `Recording shortcut for ...` 及项目外对话设置变体规则 `Settings / Agent settings for conversations outside of ...`。
+- **遥测账号声明、更早消息分页、UI 插件、自动化调度与快捷键冲突扩展**：覆盖账号关闭遥测后的说明长段、更早消息分页与步骤计数、`UI Plugin (SidePanel)`、`Weekdays` / `Weekly`、`Open image X of Y`、`Show N More`、`(experimental)`、`Line X → Y`、`Xs left` / `Xd Yh Zm left` 倒计时及快捷键 `reserved for sidebar switching` 冲突提示。
+
+### 3. 全链路验证与测试门禁
+- 词典全量维持 **`4,444` 键 `0` 重复**，新增 `tests/ticket-48-v2340-features.test.js`、`tests/ticket-49-v2340-remaining-gaps.test.js` 与 `tests/ticket-50-issue68-and-tier-fixes.test.js`，全工程 **57 组 TDD 自动化测试套件 100% ALL GREEN**。
+
+---
+
 ## v2.33.0 (2026-11-18) — 全面适配官方 2.33.0 大版本：Computer Use 桌面操控与实时预览、Remote SSH 全生命周期升级、9 款新音色与语音听写、插件组合包及模块化安全重构
 
 ### 1. 官方 v2.33.0 新特性全量深度汉化
