@@ -680,6 +680,23 @@
       return replaceTrimmed(text, trimmed, fixed);
     }
 
+    // 项目选择器克隆子菜单副标题（gad(): `${repoLabel} · Clone locally` / `Open in Remote` / `Cloning locally…`）
+    // 必须前置高于下方档位/状态 `·` 规则，并短路已译中文确保二次幂等且绝不误伤如 Max/Low/High/Compacting 等仓库名
+    if (/^([^\r\n]+?)\s*·\s*(Clone locally|Open in Remote|Cloning locally…|Cloning locally\.\.\.|克隆到本地|在远程打开|正在克隆到本地…|正在克隆到本地\.\.\.)$/.test(trimmed)) {
+      const cloneActMap = {
+        'Clone locally': '克隆到本地',
+        'Open in Remote': '在远程打开',
+        'Cloning locally…': '正在克隆到本地…',
+        'Cloning locally...': '正在克隆到本地...',
+      };
+      const fixed = trimmed.replace(
+        /^([^\r\n]+?)\s*·\s*(Clone locally|Open in Remote|Cloning locally…|Cloning locally\.\.\.|克隆到本地|在远程打开|正在克隆到本地…|正在克隆到本地\.\.\.)$/,
+        (_m, repoLabel, act) => repoLabel + ' · ' + (cloneActMap[act] || act)
+      );
+      cacheSet(trimmed, fixed);
+      return replaceTrimmed(text, trimmed, fixed);
+    }
+
     if (/^(Low|Medium|High|Extra\s+High|Extra|Max)\s*·\s*(.+)$/i.test(trimmed)) {
       const fixed = trimmed.replace(/^(Low|Medium|High|Extra\s+High|Extra|Max)\s*·\s*(.+)$/i, (_m, tier, ctx) => {
         const tierMap = { low: '低', medium: '中', high: '高', xhigh: '极高', 'extra high': '极高', extra: '极高', max: '最高' };
@@ -3360,11 +3377,10 @@
       }
       cur = cur.parentElement;
     }
+    // 仅读取剥离图标后的纯文本（真实浏览器中零回流，避免 .google-symbols ligature 污染系统标题识别）
     const rawLabel = (
       headerEl.getAttribute('data-project-label') ||
-      headerEl.innerText ||
-      headerEl.textContent ||
-      ''
+      readElementLabelWithoutIcons(headerEl)
     ).trim().toLowerCase();
     if (rawLabel === 'unknown project' || rawLabel === '未知项目') {
       return true;
@@ -3396,6 +3412,25 @@
     'unknown workspace', '未知工作区',
     'new project', '新建项目',
     'new workspace', '新建工作区'
+  ]);
+  const PROJECT_SELECTOR_TRIGGER_FALLBACK_PLACEHOLDERS = new Set([
+    'select project', '选择项目',
+    'select workspace', '选择工作区',
+    'unknown project', '未知项目',
+    'unknown workspace', '未知工作区'
+  ]);
+  const PROJECT_SELECTOR_TRIGGER_ALL_PLACEHOLDERS = new Set([
+    'select project', '选择项目',
+    'select workspace', '选择工作区',
+    'no project', '无项目',
+    'new workspace', '新建工作区',
+    'unknown project', '未知项目',
+    'unknown workspace', '未知工作区'
+  ]);
+  const PROJECT_SELECTOR_ITEM_TESTIDS = new Set([
+    'project-selector-item',
+    'project-selector-clone-remote-item',
+    'project-selector-clone-local-item'
   ]);
   const EDIT_PROJECT_NAME_ARIA_RE = /^(?:Edit\s+(?:project|workspace)\s+name|编辑\s*(?:项目|工作区)\s*名称?)$/i;
   const PROJECT_BREADCRUMB_ARIA_RE = /^(?:(?:Project|Workspace)\s*:\s*|(?:项目|工作区)\s*[:：]\s*)/i;
@@ -3456,10 +3491,69 @@
     return false;
   }
 
+  function readElementTextNoReflow(el) {
+    if (!el) return '';
+    if (typeof el.textContent === 'string') return el.textContent;
+    return el.innerText || '';
+  }
+
+  const SHORT_TEXT_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'MATH']);
+
+  // 有界短文本读取：最多访问 24 个元素或收集 48 个字符即早退，跳过 SVG/STYLE/SCRIPT 子树并在跨元素拼接时保留空白分隔
+  function readShortTextNoReflow(el, maxLen = 48) {
+    if (!el) return '';
+    if (!el.childNodes || el.childNodes.length === 0) {
+      return readElementTextNoReflow(el);
+    }
+    let acc = '';
+    let prevTextParent = null;
+    const stack = [el];
+    let visited = 0;
+    while (stack.length > 0) {
+      const cur = stack.pop();
+      if (!cur) continue;
+      if (cur.nodeType === Node.TEXT_NODE) {
+        const raw = cur.nodeValue;
+        if (raw) {
+          const normalized = acc.length === 0 ? raw.replace(/^\s+/, '') : raw;
+          if (normalized) {
+            if (
+              acc.length > 0 &&
+              cur.parentElement !== prevTextParent &&
+              !/\s$/.test(acc) &&
+              !/^\s/.test(normalized)
+            ) {
+              acc += ' ';
+            }
+            acc += normalized;
+            prevTextParent = cur.parentElement || null;
+            if (acc.length > maxLen) return acc;
+          }
+        }
+      } else if (cur.nodeType === Node.ELEMENT_NODE && cur.childNodes) {
+        const tag = (cur.tagName || '').toUpperCase();
+        if (cur !== el && SHORT_TEXT_SKIP_TAGS.has(tag)) continue;
+        if (++visited > 24) return acc + '\uFFFF';
+        for (let i = cur.childNodes.length - 1; i >= 0; i--) {
+          stack.push(cur.childNodes[i]);
+        }
+      }
+    }
+    return acc;
+  }
+
   function isProjectGlyphLabelSelf(cur) {
     if (!cur || cur.nodeType !== Node.ELEMENT_NODE) return false;
-    // 保护回退为 google-symbols 字体图标的 [data-project-glyph] 节点自身（避免 ligature 如 "folder"/"cloud" 被译为汉字破坏图标）
+    // 保护回退为 google-symbols 字体图标的 [data-project-glyph] 与图标 [data-project-icon] 节点自身（避免 ligature 如 "folder"/"cloud" 被译为汉字破坏图标）
     if (hasAttr(cur, 'data-project-glyph')) {
+      return true;
+    }
+    if (
+      !isProjectHeaderElement(cur) &&
+      hasAttr(cur, 'data-project-icon') &&
+      cur.classList &&
+      (cur.classList.contains('google-symbols') || cur.classList.contains('material-symbols-outlined'))
+    ) {
       return true;
     }
     if ((cur.tagName || '').toUpperCase() !== 'SPAN') {
@@ -3467,7 +3561,7 @@
     }
     const prev = getPreviousElementSibling(cur);
     if (!isProjectGlyphIconNode(prev)) return false;
-    const rawLabel = (cur.innerText || cur.textContent || '').trim().toLowerCase();
+    const rawLabel = readElementTextNoReflow(cur).trim().toLowerCase();
     return !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
   }
 
@@ -3499,7 +3593,7 @@
       }
     }
     if (!headingEl) return false;
-    const text = (headingEl.innerText || headingEl.textContent || '').trim().toLowerCase();
+    const text = readElementTextNoReflow(headingEl).trim().toLowerCase();
     return allowedTitles.has(text);
   }
 
@@ -3514,7 +3608,7 @@
   // 2) 兼容桌面设置侧栏（settings-sidebar）：保留顶部 Settings 下官方 Developer、Show All、Not in Project 及底部 Provide Feedback 正常汉化
   function isSettingsProjectNavButton(navBtn) {
     if (!isSettingsNavButton(navBtn)) return false;
-    const rawLabel = (navBtn.innerText || navBtn.textContent || '').trim().toLowerCase();
+    const rawLabel = readElementLabelWithoutIcons(navBtn).trim().toLowerCase();
     if (PROJECT_PLACEHOLDER_LABELS.has(rawLabel)) return false;
 
     // 窄屏平铺模式：向前仅跨越同类 settings-nav-item-* 按钮，遇到 <h2> 容器即判定，遇其他隔断元素立即停止
@@ -3578,7 +3672,7 @@
     }
     const aria = (next.getAttribute('aria-label') || '').trim();
     if (!EDIT_PROJECT_NAME_ARIA_RE.test(aria)) return false;
-    const rawLabel = (cur.innerText || cur.textContent || '').trim().toLowerCase();
+    const rawLabel = readElementTextNoReflow(cur).trim().toLowerCase();
     return !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
   }
 
@@ -3599,7 +3693,7 @@
     if (seg.getAttribute('data-testid') !== 'breadcrumb-segment') return false;
     const aria = (seg.getAttribute('aria-label') || '').trim();
     if (!PROJECT_BREADCRUMB_ARIA_RE.test(aria)) return false;
-    const rawLabel = (seg.innerText || seg.textContent || '').trim().toLowerCase();
+    const rawLabel = readElementLabelWithoutIcons(seg).trim().toLowerCase();
     return !BREADCRUMB_PLACEHOLDER_LABELS.has(rawLabel);
   }
 
@@ -3622,13 +3716,242 @@
     return false;
   }
 
+  function isFontIconElement(el) {
+    return Boolean(
+      el &&
+      el.nodeType === Node.ELEMENT_NODE &&
+      el.classList &&
+      (el.classList.contains('google-symbols') || el.classList.contains('material-symbols-outlined'))
+    );
+  }
+
+  function isIconOrBadgeElement(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag === 'SVG' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'MATH') {
+      return true;
+    }
+    if (
+      hasAttr(el, 'data-project-icon') ||
+      hasAttr(el, 'data-project-glyph') ||
+      hasAttr(el, 'data-icon')
+    ) {
+      return true;
+    }
+    if (el.getAttribute) {
+      const tid = el.getAttribute('data-testid');
+      if (tid === 'menu-item-check' || tid === 'project-selector-trigger-badge' || tid === 'project-selector-item-badge') {
+        return true;
+      }
+    }
+    if (el.classList && (el.classList.contains('google-symbols') || el.classList.contains('material-symbols-outlined'))) {
+      return true;
+    }
+    return false;
+  }
+
+  function hasDescendantProjectIcon(rootEl) {
+    if (!rootEl || !rootEl.childNodes) return false;
+    const stack = [rootEl];
+    let visited = 0;
+    while (stack.length > 0 && visited < 16) {
+      const cur = stack.pop();
+      if (!cur || cur.nodeType !== Node.ELEMENT_NODE) continue;
+      visited++;
+      if (cur !== rootEl && hasAttr(cur, 'data-project-icon')) return true;
+      if (cur.childNodes) {
+        for (let i = cur.childNodes.length - 1; i >= 0; i--) {
+          if (cur.childNodes[i] && cur.childNodes[i].nodeType === Node.ELEMENT_NODE) {
+            stack.push(cur.childNodes[i]);
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  function readElementLabelWithoutIcons(rootEl) {
+    if (!rootEl) return '';
+    if (!rootEl.childNodes || rootEl.childNodes.length === 0) {
+      return readElementTextNoReflow(rootEl);
+    }
+    let acc = '';
+    const stack = [rootEl];
+    let visited = 0;
+    while (stack.length > 0 && visited < 24) {
+      const cur = stack.pop();
+      if (!cur) continue;
+      if (cur.nodeType === Node.TEXT_NODE) {
+        if (cur.nodeValue) acc += cur.nodeValue;
+      } else if (cur.nodeType === Node.ELEMENT_NODE) {
+        if (cur !== rootEl && isIconOrBadgeElement(cur)) continue;
+        visited++;
+        if (cur.childNodes) {
+          for (let i = cur.childNodes.length - 1; i >= 0; i--) {
+            stack.push(cur.childNodes[i]);
+          }
+        }
+      }
+    }
+    return acc;
+  }
+
+  function isProjectSelectorTriggerSelf(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE || !el.getAttribute) return false;
+    if (el.getAttribute('data-testid') !== 'project-selector-trigger') return false;
+    const rawLabel = readElementLabelWithoutIcons(el).trim().toLowerCase();
+    if (!rawLabel) return false;
+    if (hasDescendantProjectIcon(el)) {
+      return !PROJECT_SELECTOR_TRIGGER_FALLBACK_PLACEHOLDERS.has(rawLabel);
+    }
+    return !PROJECT_SELECTOR_TRIGGER_ALL_PLACEHOLDERS.has(rawLabel);
+  }
+
+  function findProjectSelectorItemAncestor(el) {
+    let cur = el;
+    let depth = 0;
+    while (cur && cur !== document.body && depth < 4) {
+      if (cur.nodeType === Node.ELEMENT_NODE && cur.getAttribute) {
+        const tid = cur.getAttribute('data-testid');
+        if (tid && PROJECT_SELECTOR_ITEM_TESTIDS.has(tid)) {
+          return { item: cur, testId: tid, depth };
+        }
+        // 绝不误伤下拉项右侧悬停设置按钮（如 Project Settings）
+        if ((cur.tagName || '').toUpperCase() === 'BUTTON' && tid === 'project-selector-item-settings') {
+          return null;
+        }
+      }
+      cur = cur.parentElement;
+      depth++;
+    }
+    return null;
+  }
+
+  function hasDirectButtonOrCheckChild(el) {
+    if (!el || !el.childNodes) return false;
+    for (let i = 0; i < el.childNodes.length; i++) {
+      const ch = el.childNodes[i];
+      if (!ch || ch.nodeType !== Node.ELEMENT_NODE) continue;
+      if ((ch.tagName || '').toUpperCase() === 'BUTTON') return true;
+      if (ch.getAttribute && ch.getAttribute('data-testid') === 'menu-item-check') return true;
+    }
+    return false;
+  }
+
+  function isMultiRowFlexColContainer(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+    if (el.classList && el.classList.contains('flex-col')) return true;
+    if (!el.childNodes) return false;
+    let spanChildren = 0;
+    for (let i = 0; i < el.childNodes.length; i++) {
+      const ch = el.childNodes[i];
+      if (ch && ch.nodeType === Node.ELEMENT_NODE && (ch.tagName || '').toUpperCase() === 'SPAN') {
+        spanChildren++;
+        if (spanChildren >= 2) return true;
+      }
+    }
+    return false;
+  }
+
+  // 项目选择器下拉列表项与克隆子菜单项中的项目名 <span>：
+  // 精准保护项目名与 title，同时保留右侧设置按钮（Project Settings）与克隆副标题（Clone locally / Open in Remote / Cloning locally…）正常汉化
+  function isProjectSelectorItemLabelSelf(cur) {
+    if (!cur || cur.nodeType !== Node.ELEMENT_NODE || (cur.tagName || '').toUpperCase() !== 'SPAN') {
+      return false;
+    }
+    if (isIconOrBadgeElement(cur)) return false;
+    if (cur.classList && cur.classList.contains('ml-auto')) return false;
+    const info = findProjectSelectorItemAncestor(cur.parentElement);
+    if (!info) return false;
+
+    if (info.testId === 'project-selector-item') {
+      if (info.depth !== 0 || hasDirectButtonOrCheckChild(cur)) return false;
+      const rawLabel = readElementLabelWithoutIcons(cur).trim().toLowerCase();
+      return Boolean(rawLabel) && !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
+    }
+
+    // project-selector-clone-remote-item / project-selector-clone-local-item
+    if (info.depth === 0) {
+      if (hasDirectButtonOrCheckChild(cur) || isMultiRowFlexColContainer(cur)) return false;
+      const rawLabel = readElementLabelWithoutIcons(cur).trim().toLowerCase();
+      return Boolean(rawLabel) && !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
+    }
+    if (info.depth === 1) {
+      const parent = cur.parentElement;
+      if (!parent || (parent.classList && parent.classList.contains('ml-auto'))) return false;
+      if (getPreviousElementSibling(cur)) return false;
+      const rawLabel = readElementLabelWithoutIcons(cur).trim().toLowerCase();
+      return Boolean(rawLabel) && !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
+    }
+    if (info.depth === 2) {
+      const slot = cur.parentElement;
+      const container = slot && slot.parentElement;
+      if (!slot || !container || (container.classList && container.classList.contains('ml-auto'))) return false;
+      if (getPreviousElementSibling(slot)) return false;
+      const rawLabel = readElementLabelWithoutIcons(cur).trim().toLowerCase();
+      return Boolean(rawLabel) && !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
+    }
+    return false;
+  }
+
+  function isProjectSelectorItemLabelElement(el) {
+    let cur = el;
+    let depth = 0;
+    while (cur && cur !== document.body && depth < 3) {
+      if (isProjectSelectorItemLabelSelf(cur)) return true;
+      cur = cur.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
+  function isConversationProjectMenuItemSelf(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE || !el.getAttribute) return false;
+    const tid = el.getAttribute('data-testid') || '';
+    if (!tid.startsWith('conversation-project-')) return false;
+    const rawLabel = readElementLabelWithoutIcons(el).trim().toLowerCase();
+    return Boolean(rawLabel) && !PROJECT_PLACEHOLDER_LABELS.has(rawLabel);
+  }
+
+  // 单次有界上溯（最多 6 层）合并判定项目选择器触发器、下拉列表项与移动对话项目菜单，避免在普通长对话节点上重复三次爬树
+  function isProtectedSelectorOrMenuProjectElement(el) {
+    let cur = el;
+    let depth = 0;
+    let hitSettingsBtn = false;
+    while (cur && cur !== document.body && depth < 6) {
+      if (cur.nodeType === Node.ELEMENT_NODE && cur.getAttribute) {
+        const tid = cur.getAttribute('data-testid');
+        if (tid) {
+          if (depth < 4 && tid === 'project-selector-trigger') {
+            return isProjectSelectorTriggerSelf(cur);
+          }
+          if (depth < 4 && tid.startsWith('conversation-project-')) {
+            return isConversationProjectMenuItemSelf(cur);
+          }
+          if ((cur.tagName || '').toUpperCase() === 'BUTTON' && tid === 'project-selector-item-settings') {
+            hitSettingsBtn = true;
+          }
+          if (!hitSettingsBtn && PROJECT_SELECTOR_ITEM_TESTIDS.has(tid)) {
+            return isProjectSelectorItemLabelElement(el);
+          }
+        }
+      }
+      cur = cur.parentElement;
+      depth++;
+    }
+    return false;
+  }
+
   // 仅判断当前元素自身（供 isNonComposerProtectedSelf 在外层祖先遍历中 O(1) 调用，避免 O(D^2) 嵌套爬树）
   function isProtectedProjectNameSelf(el) {
     return (
       isProjectGlyphLabelSelf(el) ||
       isSettingsProjectNavButton(el) ||
       isSettingsProjectTitleSelf(el) ||
-      isProjectBreadcrumbSegmentSelf(el)
+      isProjectBreadcrumbSegmentSelf(el) ||
+      isProjectSelectorTriggerSelf(el) ||
+      isProjectSelectorItemLabelSelf(el) ||
+      isConversationProjectMenuItemSelf(el)
     );
   }
 
@@ -3637,7 +3960,8 @@
       isProjectGlyphLabelElement(el) ||
       isSettingsProjectNavItem(el) ||
       isSettingsProjectTitleElement(el) ||
-      isProjectBreadcrumbSegment(el)
+      isProjectBreadcrumbSegment(el) ||
+      isProtectedSelectorOrMenuProjectElement(el)
     );
   }
 
@@ -3660,7 +3984,7 @@
 
     // 绝对禁止翻译的脚本/样式/矢量图/公式/行内代码/预格式化代码块标签
     const skipTags = ['SCRIPT', 'STYLE', 'NOSCRIPT', 'KBD', 'SAMP', 'VAR', 'SVG', 'MATH', 'CODE', 'PRE', 'INPUT', 'TEXTAREA'];
-    if (skipTags.includes(upperTag)) {
+    if (skipTags.includes(upperTag) || isFontIconElement(element)) {
       skipCache.set(element, true);
       return true;
     }
@@ -3683,7 +4007,7 @@
     // 斜杠命令与提及建议菜单触发词标签（动态复用节点，绝不写入 skipCache 防止缓存毒化）
     const isMenuOptionLabel = element.closest && element.closest('[data-testid="menu-option-label"]');
     if (isMenuOptionLabel) {
-      const labelText = (isMenuOptionLabel.innerText || isMenuOptionLabel.textContent || '').trim();
+      const labelText = readElementTextNoReflow(isMenuOptionLabel).trim();
       return !MENTION_CATEGORIES.has(labelText);
     }
 
@@ -3701,8 +4025,19 @@
       return false;
     }
 
+    // 受保护区命中缓存快速返回：已确认处于代码/Markdown正文/用户消息/思考链内部时，绝不再拼接子树文本
+    if (skipCache.get(element) === true) {
+      return true;
+    }
+
     // 选中文本快捷引用气泡（Quote / Ask /btw）与执行步骤状态药丸（必须校验不处于代码/Markdown正文/用户消息/思考链等受保护容器内，依赖动态文本不写 skipCache）
-    const textContent = (element.innerText || element.textContent || '').trim();
+    // 仅对轻量叶子/浅容器读取 textContent（零回流），彻底避免对 document.body / 超长对话容器反复序列化整棵子树文本
+    const canBeShortPill =
+      element !== document.body &&
+      element !== document.documentElement &&
+      !(element.childElementCount > 4) &&
+      !(element.childNodes && element.childNodes.length > 8);
+    const textContent = canBeShortPill ? readShortTextNoReflow(element, 48).trim() : '';
     const isQuoteOrBtwBubble = textContent.length <= 40 && /^(?:Quote|Ask(?:\s+|\s*\/\s*)btw)(?:\s+(?:Ctrl|Cmd)(?:\+[a-zA-Z0-9]+)+)?$/i.test(textContent);
     const isActionPill = textContent.length <= 40 && /^(Explored|Exploring|Ran|Run|Running|Viewed|Viewing|Edited|Editing|Thought|Thinking|Working|Done|Analyzed|Analyzing|Created|Creating|Deleted|Deleting|Waiting|Rejected|Errored|Completed|Used)(\s+(command|commands|files?|tools?|artifacts?))?$/i.test(textContent);
     if (isQuoteOrBtwBubble || isActionPill) {
@@ -3710,7 +4045,7 @@
       let checkCur = element;
       while (checkCur && checkCur !== document.body) {
         const curTag = (checkCur.tagName || '').toUpperCase();
-        if (CODE_OR_LITERAL_TAGS.has(curTag) || isSwarmProtectedElement(checkCur) || isProtectedMarkdownElement(checkCur)) {
+        if (CODE_OR_LITERAL_TAGS.has(curTag) || isFontIconElement(checkCur) || isSwarmProtectedElement(checkCur) || isProtectedMarkdownElement(checkCur)) {
           inProtectedAncestor = true;
           break;
         }
@@ -3779,7 +4114,7 @@
       }
 
       const curTag = (cur.tagName || '').toUpperCase();
-      if (CODE_OR_LITERAL_TAGS.has(curTag) || isProtectedMarkdownElement(cur)) {
+      if (CODE_OR_LITERAL_TAGS.has(curTag) || isFontIconElement(cur) || isProtectedMarkdownElement(cur)) {
         shouldSkip = true;
         break;
       }
@@ -3915,6 +4250,59 @@
           }
         }
       }
+      // 兼容 React 连续两段/三段文本节点（如 gad() 克隆子菜单空态：{"No matching "}{projectNoun}）
+      // 严格按 React 静态前缀/动态名词槽位原位写入，避免后续动态切换 projects -> workspaces 时发生串味拼接
+      if (children.length === 2 && children.every(c => c.nodeType === Node.TEXT_NODE)) {
+        const rawPre = children[0].nodeValue || '';
+        const rawNoun = children[1].nodeValue || '';
+        const pre = rawPre.trim();
+        const noun = rawNoun.trim().toLowerCase();
+        const isEnPre = /^No matching$/i.test(pre) && (/\s$/.test(rawPre) || /^\s/.test(rawNoun));
+        const isZhPre = pre === '没有匹配的';
+        if (isEnPre || isZhPre) {
+          if (noun === 'projects' || noun === '项目') {
+            children[0].nodeValue = '没有匹配的';
+            children[1].nodeValue = '项目';
+            translatedNodes.set(children[0], '没有匹配的');
+            translatedNodes.set(children[1], '项目');
+            return true;
+          }
+          if (noun === 'workspaces' || noun === '工作区') {
+            children[0].nodeValue = '没有匹配的';
+            children[1].nodeValue = '工作区';
+            translatedNodes.set(children[0], '没有匹配的');
+            translatedNodes.set(children[1], '工作区');
+            return true;
+          }
+        }
+      }
+      if (children.length === 3 && children.every(c => c.nodeType === Node.TEXT_NODE)) {
+        const pre = (children[0].nodeValue || '').trim();
+        const mid = children[1].nodeValue || '';
+        const noun = (children[2].nodeValue || '').trim().toLowerCase();
+        const isEnPre = /^No matching$/i.test(pre) && /^\s+$/.test(mid);
+        const isZhPre = pre === '没有匹配的' && mid.trim() === '';
+        if (isEnPre || isZhPre) {
+          if (noun === 'projects' || noun === '项目') {
+            children[0].nodeValue = '没有匹配的';
+            children[1].nodeValue = '';
+            children[2].nodeValue = '项目';
+            translatedNodes.set(children[0], '没有匹配的');
+            translatedNodes.set(children[1], '');
+            translatedNodes.set(children[2], '项目');
+            return true;
+          }
+          if (noun === 'workspaces' || noun === '工作区') {
+            children[0].nodeValue = '没有匹配的';
+            children[1].nodeValue = '';
+            children[2].nodeValue = '工作区';
+            translatedNodes.set(children[0], '没有匹配的');
+            translatedNodes.set(children[1], '');
+            translatedNodes.set(children[2], '工作区');
+            return true;
+          }
+        }
+      }
       return false;
     }
 
@@ -3979,20 +4367,23 @@
     return true;
   }
 
-  // 收集元素下安全的叶子文本节点（排除 SVG / STYLE / SCRIPT / MATH，绝不触碰 Element 结构）
-  function collectSafeLeafTextNodes(rootEl, out) {
-    if (!rootEl || !rootEl.childNodes) return;
+  // 收集元素下安全的叶子文本节点（排除 SVG / STYLE / SCRIPT / MATH，绝不触碰 Element 结构；双上限早退防止 O(N*depth) 与空壳子树遍历）
+  function collectSafeLeafTextNodes(rootEl, out, maxCount = 9, budget = { visited: 0, maxVisited: 32 }) {
+    if (!rootEl || !rootEl.childNodes || out.length >= maxCount || budget.visited >= budget.maxVisited) return;
     for (let i = 0; i < rootEl.childNodes.length; i++) {
+      if (out.length >= maxCount || budget.visited >= budget.maxVisited) return;
       const ch = rootEl.childNodes[i];
       if (ch.nodeType === Node.TEXT_NODE) {
         if (ch.nodeValue && ch.nodeValue.trim()) {
           out.push(ch);
+          if (out.length >= maxCount) return;
         }
       } else if (ch.nodeType === Node.ELEMENT_NODE) {
+        if (++budget.visited > budget.maxVisited) return;
         if (isNonComposerProtectedSelf(ch)) {
           continue;
         }
-        collectSafeLeafTextNodes(ch, out);
+        collectSafeLeafTextNodes(ch, out, maxCount, budget);
       }
     }
   }
@@ -4031,7 +4422,7 @@
   function isNonComposerProtectedSelf(cur) {
     if (!cur || cur.nodeType !== Node.ELEMENT_NODE) return false;
     const curTag = (cur.tagName || '').toUpperCase();
-    if (CODE_OR_LITERAL_TAGS.has(curTag) || curTag === 'SCRIPT' || curTag === 'STYLE' || curTag === 'NOSCRIPT' || isSwarmProtectedElement(cur) || isProtectedMarkdownElement(cur)) {
+    if (CODE_OR_LITERAL_TAGS.has(curTag) || curTag === 'SCRIPT' || curTag === 'STYLE' || curTag === 'NOSCRIPT' || isFontIconElement(cur) || isSwarmProtectedElement(cur) || isProtectedMarkdownElement(cur)) {
       return true;
     }
     if (isUserProjectHeader(cur) || isProtectedProjectNameSelf(cur)) {
@@ -4205,31 +4596,33 @@
       });
 
       // 空状态提示收敛（纯叶子 TEXT_NODE 改写，严禁赋值 ELEMENT_NODE.textContent，保留 <svg> 与全部 React Fiber 子元素引用）
-      const leafTexts = [];
-      collectSafeLeafTextNodes(node, leafTexts);
-      if (leafTexts.length >= 1 && leafTexts.length <= 8) {
-        const joinedLeafText = leafTexts.map(t => t.nodeValue).join('').trim();
-        const emptyStateMatch = joinedLeafText.match(/^No\s+(automations?|automation|自动化|conversations?|conversation|对话|groups?|group|分组)\s+yet[.。]?$/i);
-        if (emptyStateMatch) {
-          const emptyStateMap = {
-            automations: '暂无自动化',
-            automation: '暂无自动化',
-            '自动化': '暂无自动化',
-            conversations: '暂无对话',
-            conversation: '暂无对话',
-            '对话': '暂无对话',
-            groups: '暂无分组',
-            group: '暂无分组',
-            '分组': '暂无分组'
-          };
-          const targetText = emptyStateMap[emptyStateMatch[1].toLowerCase()] || '暂无自动化';
-          leafTexts[0].nodeValue = targetText;
-          translatedNodes.set(leafTexts[0], targetText);
-          for (let i = 1; i < leafTexts.length; i++) {
-            leafTexts[i].nodeValue = '';
-            translatedNodes.set(leafTexts[i], '');
+      if (node !== document.body && node !== document.documentElement && !(node.childElementCount > 12)) {
+        const leafTexts = [];
+        collectSafeLeafTextNodes(node, leafTexts, 9);
+        if (leafTexts.length >= 1 && leafTexts.length <= 8) {
+          const joinedLeafText = leafTexts.map(t => t.nodeValue).join('').trim();
+          const emptyStateMatch = joinedLeafText.match(/^No\s+(automations?|automation|自动化|conversations?|conversation|对话|groups?|group|分组)\s+yet[.。]?$/i);
+          if (emptyStateMatch) {
+            const emptyStateMap = {
+              automations: '暂无自动化',
+              automation: '暂无自动化',
+              '自动化': '暂无自动化',
+              conversations: '暂无对话',
+              conversation: '暂无对话',
+              '对话': '暂无对话',
+              groups: '暂无分组',
+              group: '暂无分组',
+              '分组': '暂无分组'
+            };
+            const targetText = emptyStateMap[emptyStateMatch[1].toLowerCase()] || '暂无自动化';
+            leafTexts[0].nodeValue = targetText;
+            translatedNodes.set(leafTexts[0], targetText);
+            for (let i = 1; i < leafTexts.length; i++) {
+              leafTexts[i].nodeValue = '';
+              translatedNodes.set(leafTexts[i], '');
+            }
+            return;
           }
-          return;
         }
       }
 
@@ -4610,3 +5003,4 @@
     startObserver();
   }
 })();
+// Antigravity 2.0 Chinese Localization Engine End
